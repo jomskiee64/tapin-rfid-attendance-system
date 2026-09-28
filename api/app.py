@@ -200,6 +200,27 @@ ATTENDANCE_DATA_FILE = os.path.join(BASE_DIR, "storage", "database", "attendance
 # This is the NEW work-status.json — it lives alongside users.json and is NEVER wiped.
 WORK_STATUS_DATA_FILE = os.path.join(BASE_DIR, "storage", "database", "work-status.json")
 
+# ============================================================================
+# DAILY STATS LOG FILES - PERSISTENT DAILY COUNTERS
+# ============================================================================
+# These files track the DAILY totals for present employees and RFID scans.
+# They are written to on EVERY RFID tap (and face recognition) regardless of
+# whether any admin dashboard is open. They are reset automatically at midnight
+# by the scheduler, and also lazily on the first request after midnight.
+#
+# Structure of daily_stats.json:
+#     {
+#         "date": "2026-09-28",           # the calendar day these counts are for
+#         "present_uids": ["021", "045"], # unique UIDs of employees who tapped in
+#         "present_count": 2,             # len(present_uids)
+#         "scan_count": 15,               # total RFID scans today
+#         "last_updated": "..."           # ISO timestamp of last write
+#     }
+#
+# This file lives in storage/database/ so it is NOT wiped by the nightly feed
+# wipe (which only touches storage/feed/). It manages its own daily reset.
+DAILY_STATS_FILE = os.path.join(BASE_DIR, "storage", "database", "daily_stats.json")
+
 # Profile images storage
 PROFILE_STORAGE = os.path.join(BASE_DIR, "storage", "profiles")
 
@@ -383,6 +404,7 @@ WORK_STATUS_PERIODS = {
 os.makedirs(os.path.dirname(USER_DATA_FILE), exist_ok=True)
 os.makedirs(os.path.dirname(ATTENDANCE_DATA_FILE), exist_ok=True)
 os.makedirs(os.path.dirname(WORK_STATUS_DATA_FILE), exist_ok=True)
+os.makedirs(os.path.dirname(DAILY_STATS_FILE), exist_ok=True)
 os.makedirs(os.path.dirname(PROFILE_STORAGE), exist_ok=True)
 os.makedirs(os.path.dirname(SCAN_FEED_FILE), exist_ok=True)
 os.makedirs(os.path.dirname(SCAN_EVENTS_FILE), exist_ok=True)
@@ -398,6 +420,7 @@ print(f"BASE_DIR: {BASE_DIR}")
 print(f"USER_DATA_FILE: {USER_DATA_FILE}")
 print(f"ATTENDANCE_DATA_FILE: {ATTENDANCE_DATA_FILE}")
 print(f"WORK_STATUS_DATA_FILE: {WORK_STATUS_DATA_FILE}")
+print(f"DAILY_STATS_FILE: {DAILY_STATS_FILE}")
 print(f"PROFILE_STORAGE: {PROFILE_STORAGE}")
 print(f"SCAN_FEED_FILE: {SCAN_FEED_FILE}")
 print(f"SCAN_EVENTS_FILE: {SCAN_EVENTS_FILE}")
@@ -486,6 +509,129 @@ last_scan_tracking = {}
 SCAN_COOLDOWN_SECONDS = 3 * 60
 
 # ============================================================================
+# DAILY STATS HELPERS - PERSISTENT DAILY COUNTERS
+# ============================================================================
+# These functions manage the daily_stats.json file which tracks:
+#   - present_count : number of UNIQUE employees who tapped in today
+#   - scan_count    : total number of RFID scans today
+#
+# The file is written to on EVERY RFID tap (see receive_rfid and faces_record)
+# so the counts are always accurate, regardless of whether any dashboard is
+# open. The dashboard merely READS these values via /api/dashboard-data.
+#
+# The file resets automatically at midnight:
+#   - The scheduler calls reset_daily_stats_if_needed() on the new day.
+#   - Every read/write also checks the date and resets if needed.
+# ============================================================================
+
+def _empty_daily_stats(date_str=None):
+    """Build a fresh empty daily stats document for a given date."""
+    if date_str is None:
+        date_str = datetime.now().date().isoformat()
+    return {
+        "date": date_str,
+        "present_uids": [],
+        "present_count": 0,
+        "scan_count": 0,
+        "last_updated": datetime.now().isoformat()
+    }
+
+def load_daily_stats():
+    """Load the daily stats file, resetting it if the date has changed.
+
+    Returns a dict with keys: date, present_uids, present_count, scan_count,
+    last_updated.
+    """
+    today = datetime.now().date().isoformat()
+
+    if not os.path.exists(DAILY_STATS_FILE):
+        stats = _empty_daily_stats(today)
+        _write_daily_stats(stats)
+        return stats
+
+    try:
+        with open(DAILY_STATS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        print(f"Error reading daily stats file: {e}")
+        stats = _empty_daily_stats(today)
+        _write_daily_stats(stats)
+        return stats
+
+    # If the file is from a previous day, reset it.
+    if not isinstance(data, dict) or data.get("date") != today:
+        print(f"Daily stats date changed from {data.get('date') if isinstance(data, dict) else '?'} to {today} — resetting counters.")
+        stats = _empty_daily_stats(today)
+        _write_daily_stats(stats)
+        return stats
+
+    # Normalize structure
+    if "present_uids" not in data or not isinstance(data["present_uids"], list):
+        data["present_uids"] = []
+    if "present_count" not in data:
+        data["present_count"] = len(data["present_uids"])
+    if "scan_count" not in data:
+        data["scan_count"] = 0
+    data["present_count"] = len(data["present_uids"])
+    if "last_updated" not in data:
+        data["last_updated"] = datetime.now().isoformat()
+    return data
+
+def _write_daily_stats(stats):
+    """Internal: write the daily stats dict to disk."""
+    try:
+        os.makedirs(os.path.dirname(DAILY_STATS_FILE), exist_ok=True)
+        stats["last_updated"] = datetime.now().isoformat()
+        with open(DAILY_STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=4)
+            f.write("\n")
+    except Exception as e:
+        print(f"Error writing daily stats file: {e}")
+
+def save_daily_stats(stats):
+    """Public: persist the daily stats dict (auto-resets if date changed)."""
+    today = datetime.now().date().isoformat()
+    if not isinstance(stats, dict):
+        stats = _empty_daily_stats(today)
+    if stats.get("date") != today:
+        stats = _empty_daily_stats(today)
+    stats["present_count"] = len(stats.get("present_uids", []))
+    _write_daily_stats(stats)
+
+def record_daily_scan(uid=None):
+    """Record one RFID scan for today and, if uid is provided, one present employee.
+
+    This is called on EVERY RFID tap (and face recognition) so the daily
+    counters are always up to date regardless of whether a dashboard is open.
+
+    Args:
+        uid: The employee's uid if the RFID matched a known employee.
+             If None, only the scan_count is incremented (unknown card).
+    """
+    stats = load_daily_stats()
+
+    # Increment total scan count
+    stats["scan_count"] = int(stats.get("scan_count", 0)) + 1
+
+    # Increment unique present count if this is a known employee
+    if uid:
+        uid_str = str(uid).strip()
+        if uid_str and uid_str not in stats.get("present_uids", []):
+            stats.setdefault("present_uids", []).append(uid_str)
+
+    stats["present_count"] = len(stats.get("present_uids", []))
+    save_daily_stats(stats)
+    return stats
+
+def reset_daily_stats_if_needed():
+    """Force-reset the daily stats file if the date has changed.
+
+    Called by the midnight scheduler and also lazily on every dashboard
+    request (via load_daily_stats, which auto-resets).
+    """
+    return load_daily_stats()
+
+# ============================================================================
 # NIGHTLY FEED WIPE (runs automatically at 12:00 AM local time)
 # ============================================================================
 # The four feed files listed below are cleared at midnight every day:
@@ -506,6 +652,7 @@ SCAN_COOLDOWN_SECONDS = 3 * 60
 #     - users.json           (employee records)
 #     - attendance.json      (DTR records)
 #     - work-status.json     (NEW mirror of the feed — kept forever)
+#     - daily_stats.json     (daily present/scan counters — manages its own reset)
 #     - settings.json        (config)
 _last_feed_wipe_date = None
 
@@ -519,6 +666,8 @@ def perform_nightly_feed_wipe(force=False):
         - storage/feed/work-status_feed.json   (requests + approved + rejected)
 
     The persistent mirror at storage/database/work-status.json is NEVER touched.
+    The persistent daily counters at storage/database/daily_stats.json are NEVER
+    touched here — they reset themselves based on the calendar date.
 
     Also clears in-memory daily state (latest scan + per-RFID cooldown).
 
@@ -587,6 +736,15 @@ def perform_nightly_feed_wipe(force=False):
     latest_scan["rfid"] = None
     latest_scan["scanned_at"] = None
 
+    # --- 6) Daily stats reset (present/scan counters) -----------------------
+    # This is a SEPARATE file that manages its own daily reset, but we also
+    # force it here so the counters flip over promptly at midnight.
+    try:
+        reset_daily_stats_if_needed()
+        print(f"[Nightly] Daily stats counters reset for the new day")
+    except Exception as e:
+        print(f"[Nightly] Failed to reset daily stats: {e}")
+
     print(f"[Nightly] All feeds wiped for {today.isoformat()} at {now_iso}")
 
 def start_nightly_wipe_scheduler():
@@ -596,14 +754,21 @@ def start_nightly_wipe_scheduler():
     local time is Sunday at 23:30. If it is, and we haven't already
     wiped this week, it calls perform_nightly_feed_wipe(force=True).
 
+    It ALSO checks every 30 seconds whether the calendar date has changed,
+    and if so, resets the daily present/scan counters.
+
     This runs regardless of whether any API route is hit, so the feeds are
-    always cleared at Sunday 23:30 local time.
+    always cleared at Sunday 23:30 local time and the daily counters always
+    flip over at midnight.
 
     Runs as a daemon thread — it shuts down automatically when the app exits.
     """
     if not THREADING_AVAILABLE:
         print("⚠️  Nightly wipe scheduler not started (threading unavailable)")
         return
+
+    # Track which date we last reset the daily stats for, so we only reset once.
+    last_daily_reset_date = {"value": datetime.now().date().isoformat()}
 
     def _scheduler_loop():
         print("[Scheduler] Nightly feed wipe scheduler started (checks every 30s)")
@@ -616,6 +781,15 @@ def start_nightly_wipe_scheduler():
                     if _last_feed_wipe_date != now.date():
                         print(f"[Scheduler] Sunday 23:30 detected at {now.isoformat()} — wiping feeds")
                         perform_nightly_feed_wipe(force=True)
+
+                # --- Daily stats rollover check ------------------------------
+                # If the calendar date has changed since the last check, reset
+                # the daily present/scan counters so they start fresh.
+                current_date = now.date().isoformat()
+                if last_daily_reset_date["value"] != current_date:
+                    print(f"[Scheduler] Date changed to {current_date} — resetting daily counters")
+                    reset_daily_stats_if_needed()
+                    last_daily_reset_date["value"] = current_date
             except Exception as e:
                 print(f"[Scheduler] Error in scheduler loop: {e}")
             # Sleep 30 seconds before checking again.
@@ -623,7 +797,7 @@ def start_nightly_wipe_scheduler():
 
     scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="nightly-wipe")
     scheduler_thread.start()
-    print("✅ Nightly wipe scheduler thread launched (weekly on Sunday at 23:30)")
+    print("✅ Nightly wipe scheduler thread launched (weekly on Sunday at 23:30, daily counter reset at midnight)")
 
 ## Functions ------------------------------------
 # Image compression function
@@ -2278,8 +2452,21 @@ def get_online_devices():
 
 # Calculate live attendance totals from today's recognized RFID scans.
 def get_dashboard_statistics():
+    """Return dashboard statistics.
+
+    IMPORTANT: present_today and rfid_scans_today are now read from the
+    PERSISTENT daily_stats.json file, NOT computed from the in-memory
+    scan_events list. This means the counts are always accurate on every
+    computer, even when no admin dashboard is open — because every RFID
+    tap writes to daily_stats.json immediately.
+    """
     today = datetime.now().date()
-    today_events = [event for event in scan_events if event.get("scanned_on") == today.isoformat()]
+    today_str = today.isoformat()
+
+    # --- Read the persistent daily counters --------------------------------
+    daily_stats = load_daily_stats()
+    present_today = int(daily_stats.get("present_count", 0))
+    rfid_scans_today = int(daily_stats.get("scan_count", 0))
 
     # All employees (regardless of RFID)
     all_employees = [
@@ -2288,25 +2475,18 @@ def get_dashboard_statistics():
     ]
     total_employees = len(all_employees)
 
-    # Only those with real RFIDs can be matched to scans
-    employee_rfids = {
-        emp.get("rfid", "").strip().upper()
-        for emp in all_employees
-        if emp.get("rfid", "").strip()
-    }
-    present_rfids = {
-        event["rfid"] for event in today_events
-        if event.get("rfid") in employee_rfids
-    }
-    present_today = len(present_rfids)
+    # Absent = total employees minus those who tapped in today.
+    # Clamp at 0 in case the daily stats file somehow has more uids than
+    # employees (e.g. an employee was deleted mid-day).
     absent_today = max(total_employees - present_today, 0)
+
+    # Attendance rate is based on the persistent present count.
     attendance_rate = round((present_today / total_employees) * 100, 1) if total_employees else 0
 
     # "On Work Status" should count UNIQUE EMPLOYEES whose approved work
     # status requests cover TODAY's date — not the total number of approved
     # requests ever. Otherwise the number grows forever and no longer means
     # what the dashboard card claims.
-    today_str = today.isoformat()
     employees_on_work_status_today = set()
     for req in work_status_data.get("approved", []):
         days = req.get("days") or []
@@ -2340,9 +2520,11 @@ def get_dashboard_statistics():
         "employees_late": 0,
         "on_work_status": len(employees_on_work_status_today),
         "attendance_rate": attendance_rate,
-        "rfid_scans_today": len(today_events),
+        "rfid_scans_today": rfid_scans_today,
         "departments": 0,
         "profile_images": profile_images,
+        # Expose the date the counters are for so the UI can sanity-check it.
+        "stats_date": daily_stats.get("date", today_str),
     }
 
 # Prepare recent scans and user records for the dashboard UI.
@@ -5213,6 +5395,14 @@ def faces_record():
     try:
         record, result = record_attendance_scan(employee, scanned_at)
         save_attendance_data()
+
+        # Record the daily stats (present + scan counts) so the counters
+        # are updated even when no dashboard is open.
+        try:
+            record_daily_scan(uid=employee.get("uid"))
+        except Exception as e:
+            print(f"Warning: failed to update daily stats from face scan: {e}")
+
         _face_log_scan(employee_rfid, employee, confidence, "face_verified", "face_verification")
         add_scan_to_feed(employee_rfid, scanned_at, employee, True, scan_type="face_recognition")
         scan_events.append({
@@ -5888,6 +6078,7 @@ def dashboard_data():
         "status": "success",
         "data": get_dashboard_data()
     }), 200
+
 @app.route("/api/activity-feed", methods=["GET"])
 def get_activity_feed():
     """Get the activity feed data for the dashboard timeline"""
@@ -6144,6 +6335,15 @@ def receive_rfid():
         employee = employee_database.get(rfid)
         found = bool(employee)
 
+        # Record the daily stats (present + scan counts) IMMEDIATELY, regardless
+        # of whether any dashboard is open. This is the fix for the "counts only
+        # update when admin is logged in" bug — the counters now live on the
+        # server in daily_stats.json.
+        try:
+            record_daily_scan(uid=employee.get("uid") if employee else None)
+        except Exception as e:
+            print(f"Warning: failed to update daily stats: {e}")
+
         # Do NOT call add_scan_to_feed here — record_attendance_scan will do it
         # with the correct scan_type (am_in / am_out / pm_in / pm_out) once the
         # in/out state machine runs below.
@@ -6277,6 +6477,13 @@ try:
     print("[Boot] Initial feed wipe skipped (disabled per user request).")
 except Exception as e:
     print(f"⚠️ Startup wipe error: {e}")
+
+# Ensure the daily stats file exists and is for the correct date.
+try:
+    load_daily_stats()
+    print("[Boot] Daily stats file initialized.")
+except Exception as e:
+    print(f"⚠️ Daily stats init error: {e}")
 
 ## Main ------------------------------------
 if __name__ == "__main__":

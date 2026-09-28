@@ -432,25 +432,6 @@ function initials(user) {
     return `${user.firstname || ''} ${user.lastname || ''}`.trim().split(/\s+/).map((part) => part[0] || '').join('').slice(0, 2).toUpperCase() || '--';
 }
 
-// Sort employees by uid (numeric or string)
-function sortEmployeesByUid(employees) {
-    return employees.slice().sort((a, b) => {
-        const uidA = a.uid || '';
-        const uidB = b.uid || '';
-
-        // Try to parse as numbers for numeric sorting
-        const numA = parseInt(uidA, 10);
-        const numB = parseInt(uidB, 10);
-
-        if (!isNaN(numA) && !isNaN(numB)) {
-            return numA - numB;
-        }
-
-        // Fallback to string comparison
-        return uidA.localeCompare(uidB);
-    });
-}
-
 // ============ SEARCH FUNCTIONALITY ============
 
 // Store search results for autocomplete
@@ -2215,6 +2196,67 @@ async function loadActivityFeed() {
     }
 }
 
+// ============ DAILY STATS FETCHER (PERSISTENT PRESENT + SCAN COUNTERS) ============
+// The server keeps track of these two numbers in storage/database/daily_stats.json.
+// They are written on EVERY RFID tap and face scan, regardless of whether any
+// dashboard is open. This lightweight endpoint lets us refresh just those two
+// numbers frequently without re-downloading the full dashboard payload.
+
+async function loadDailyStats() {
+    try {
+        const response = await fetch(`${dashboardApiBaseUrl}/api/daily-stats`, {
+            method: 'GET',
+            headers: getAuthHeaders(),
+            credentials: 'include',
+            cache: 'no-store'
+        });
+
+        if (response.status === 401) {
+            return;
+        }
+        if (!response.ok) {
+            console.error('Failed to load daily stats:', response.status);
+            return;
+        }
+
+        const result = await response.json();
+        if (result.status === 'success' && result.data) {
+            applyDailyStatsToCards(result.data);
+        }
+    } catch (error) {
+        console.error('Error loading daily stats:', error);
+    }
+}
+
+// Update ONLY the two count-based cards (Present Today, RFID Scans) with
+// the numbers returned by the server. Everything else on the dashboard
+// continues to come from /api/dashboard-data.
+function applyDailyStatsToCards(dailyStats) {
+    const presentEl = document.getElementById('statPresentToday');
+    if (presentEl) presentEl.textContent = dailyStats.present_count ?? 0;
+
+    const scansEl = document.getElementById('statRfidScans');
+    if (scansEl) scansEl.textContent = dailyStats.scan_count ?? 0;
+
+    // Refresh the small progress bars as well, since they depend on these
+    // two numbers. We re-use the existing bar-update helper by feeding it a
+    // minimal stats object — the rest of the fields stay whatever the last
+    // /api/dashboard-data call set.
+    updateStatProgressBars({
+        total_employees: (window.__lastStats && window.__lastStats.total_employees) || 1,
+        present_today: dailyStats.present_count ?? 0,
+        absent_today: (window.__lastStats && window.__lastStats.absent_today) || 0,
+        on_work_status: (window.__lastStats && window.__lastStats.on_work_status) || 0,
+        attendance_rate: (window.__lastStats && window.__lastStats.attendance_rate) || 0,
+        rfid_scans_today: dailyStats.scan_count ?? 0,
+    });
+
+    // Remember the last-known values so the next call can fill in the gaps.
+    window.__lastDailyStats = dailyStats;
+}
+
+// ============ END DAILY STATS FETCHER ============
+
 // ============ DTR FUNCTIONS ============
 
 // Employees available for the DTR search box (populated below)
@@ -3810,6 +3852,11 @@ async function loadDashboardData() {
             loadActivityFeed();
         }
 
+        // Remember the latest stats so the daily-stats card refresher can
+        // fill in the gaps (total employees, absent, etc.) when it updates
+        // ONLY the present + scan counts.
+        window.__lastStats = stats;
+
         const latestScanTime = document.getElementById('latestScanTime');
         if (latestScanTime) {
             const latest = data.latest_scan;
@@ -5342,6 +5389,11 @@ async function verifyDashboardSession() {
         // Inject the DTR search dropdown styles so suggestion boxes float
         // correctly above the cards (fixes the "dropdown doesn't show" bug).
         ensureDTRSearchStyles();
+
+        // Prime the daily stats cards immediately on session start so the
+        // Present Today and RFID Scans numbers are correct from the very
+        // first render — even before the next 5-second dashboard refresh.
+        loadDailyStats();
     } catch (error) {
         redirectToLogin();
     }
@@ -5654,6 +5706,13 @@ window.addEventListener('pageshow', verifyDashboardSession);
 setInterval(updateClock, 1000);
 setInterval(loadDashboardData, 5000);
 setInterval(loadActivityFeed, 10000); // Refresh activity feed every 10 seconds
+
+// Poll the lightweight daily-stats endpoint every 3 seconds so the
+// Present Today and RFID Scans counters stay fresh without waiting for
+// the full 5-second dashboard refresh. This endpoint reads directly from
+// storage/database/daily_stats.json — the same file the RFID taps write to.
+setInterval(loadDailyStats, 3000);
+
 updateClock();
 
 // Remove the old employee card collapse function since we have a new one

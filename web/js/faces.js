@@ -21,6 +21,7 @@ console.log("[faces.js] API_BASE =", API_BASE);
 const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
 const MATCH_THRESHOLD = 0.50; // Lower = stricter
 const ATTENDANCE_COOLDOWN = 10000; // 10 seconds between scans
+const STATS_REFRESH_MS = 10000; // Refresh "Present Today" + stats every 10s
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -39,6 +40,7 @@ let faceTemplates = [];
 let lastSent = new Map();
 let scanCount = 0;
 let todayAttendance = [];
+let statsRefreshTimer = null;
 
 // ========================================================================
 // STATUS HELPERS
@@ -52,6 +54,14 @@ function setStatus(text, state) {
     else if (state === "error" || state === "offline") statusDot.classList.add("offline");
     else statusDot.classList.add("unknown");
   }
+}
+
+// Remove the "Waiting for face detection…" placeholder the moment we have
+// a real log entry to show, so the panel doesn't stay stuck on that text.
+function clearLogPlaceholder() {
+  if (!logEntries) return;
+  const empty = logEntries.querySelector(".log-empty");
+  if (empty) empty.remove();
 }
 
 // ========================================================================
@@ -87,6 +97,14 @@ async function boot() {
   await loadStats().catch(e => {
     console.error("[faces.js] loadStats failed:", e);
   });
+
+  // ---- Phase 3: Start the periodic stats refresh. This keeps "Present
+  //              Today" in sync with the server's persistent daily counter,
+  //              even when no RFID taps are happening on this device. ----
+  if (statsRefreshTimer) clearInterval(statsRefreshTimer);
+  statsRefreshTimer = setInterval(() => {
+    loadStats().catch(e => console.warn("[faces.js] background loadStats failed:", e));
+  }, STATS_REFRESH_MS);
 
   console.log("[faces.js] Boot sequence complete");
 }
@@ -223,6 +241,10 @@ async function loadStats() {
       const elRate = document.getElementById("statRate");
 
       if (elTfs) elTfs.textContent = stats.profile_images || 0;
+      // "Present Today" comes from the persistent daily counter on the
+      // server (storage/database/daily_stats.json). This is the same
+      // number the admin dashboard shows — it does NOT depend on this
+      // scanner being open, and it also counts RFID taps.
       if (elPresent) elPresent.textContent = stats.present_today || 0;
       if (elTotal) elTotal.textContent = stats.total_employees || 0;
       if (elRate) elRate.textContent = stats.attendance_rate || "0%";
@@ -238,15 +260,9 @@ async function loadStats() {
     }
   } catch (e) {
     console.error("[faces.js] Error loading stats:", e);
-    // Set visible placeholders so the UI doesn't stay at "0" silently
-    const elTfs = document.getElementById("statTFS");
-    if (elTfs && elTfs.textContent === "0") elTfs.textContent = "—";
-    const elPresent = document.getElementById("statPresent");
-    if (elPresent && elPresent.textContent === "0") elPresent.textContent = "—";
-    const elTotal = document.getElementById("statTotal");
-    if (elTotal && elTotal.textContent === "0") elTotal.textContent = "—";
-    const elRate = document.getElementById("statRate");
-    if (elRate && elRate.textContent === "0%") elRate.textContent = "—";
+    // Only blank out the values on a HARD failure. We leave any existing
+    // number on screen so the periodic refresh loop gets a chance to
+    // recover on the next tick without blanking a valid value.
     throw e;
   }
 }
@@ -283,6 +299,11 @@ async function startCamera() {
     document.getElementById("cameraHint").style.display = "none";
     messageEl.textContent = "🔍 Scanning for faces...";
 
+    // Push an initial info entry so the log isn't stuck on
+    // "Waiting for face detection…" after the user starts the camera.
+    addLogEntry("Scanner", 0, "info", "Camera started — scanning for faces");
+    clearLogPlaceholder();
+
     recognitionLoop();
   } catch (e) {
     console.error("Camera error:", e);
@@ -303,6 +324,9 @@ function stopCamera() {
   document.getElementById("stop").disabled = true;
   document.getElementById("cameraHint").style.display = "grid";
   messageEl.textContent = "Camera stopped.";
+
+  // Log the stop so the recognition log reflects the current state.
+  addLogEntry("Scanner", 0, "info", "Camera stopped");
 }
 
 // ========================================================================
@@ -485,11 +509,17 @@ function addLogEntry(name, confidence, type, message) {
     info: "ℹ️"
   };
 
+  // Only show a confidence value when we actually have one (> 0). This
+  // keeps the "Camera started" / "Camera stopped" info lines clean.
+  const confidenceText = (typeof confidence === "number" && confidence > 0)
+    ? `${confidence.toFixed(1)}%`
+    : "---";
+
   entry.innerHTML = `
     <span class="log-time">${time}</span>
     <span class="log-icon">${icons[type] || "ℹ️"}</span>
     <span class="log-name">${escapeHtml(name)}</span>
-    <span class="log-confidence">${confidence?.toFixed(1) || "---"}%</span>
+    <span class="log-confidence">${confidenceText}</span>
     <span class="log-message">${escapeHtml(message)}</span>
   `;
 
@@ -499,8 +529,9 @@ function addLogEntry(name, confidence, type, message) {
     logEntries.removeChild(logEntries.lastChild);
   }
 
-  const empty = logEntries.querySelector(".log-empty");
-  if (empty) empty.remove();
+  // Remove the "Waiting for face detection…" placeholder as soon as the
+  // first real log entry appears.
+  clearLogPlaceholder();
 }
 
 function renderAttendance(records) {
@@ -512,14 +543,23 @@ function renderAttendance(records) {
   }
 
   container.innerHTML = records.map(r => {
-    const status = r.status === "on_leave" ? "🔵 On Leave" : "🟢 Present";
+    // Show the time-in if present, whichever slot it is. Some employees
+    // may only have PM at this point in the day.
+    const timeParts = [];
+    if (r.am_in) timeParts.push(`AM: ${r.am_in}`);
+    if (r.pm_in) timeParts.push(`PM: ${r.pm_in}`);
+    const timeText = timeParts.join(" ");
+
+    const statusText = r.status === "on_leave" ? "🔵 On Leave" : "🟢 Present";
+    const statusClass = r.status === "on_leave" ? "on-leave" : "";
+
     return `
       <div class="attendance-item">
         <div class="attendance-name"><strong>${escapeHtml(r.employee || "Unknown")}</strong></div>
         <div class="attendance-details">
           <span>${escapeHtml(r.employeeid || "")}</span>
-          <span>${r.am_in ? `AM: ${r.am_in}` : ""} ${r.pm_in ? `PM: ${r.pm_in}` : ""}</span>
-          <span class="attendance-status ${r.status === "on_leave" ? "on-leave" : ""}">${status}</span>
+          <span>${escapeHtml(timeText)}</span>
+          <span class="attendance-status ${statusClass}">${statusText}</span>
         </div>
       </div>
     `;
