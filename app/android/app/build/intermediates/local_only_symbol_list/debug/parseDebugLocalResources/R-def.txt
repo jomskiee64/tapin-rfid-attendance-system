@@ -1,0 +1,26 @@
+R_DEF: Internal format may change without notice
+local
+color tapin_gold
+color tapin_maroon
+color tapin_maroon_dark
+color tapin_navy
+color tapin_teal
+color white
+drawable ic_launcher_foreground
+drawable ic_offline
+drawable ic_tapin_logo
+id offlineView
+id progressBar
+id retryButton
+id splashLogo
+id splashOverlay
+id swipeRefresh
+id webView
+layout activity_main
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+string splash_subtitle
+style Theme.TapIn
+style Theme.TapIn.Starting
+xml file_paths

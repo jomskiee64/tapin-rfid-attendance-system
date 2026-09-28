@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-mergeDebugResources-36:/layout/activity_main.xml",
+        "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.tapin.attendance.app-mergeDebugResources-36:/layout/activity_main.xml",
+        "source": "com.tapin.attendance.app-main-39:/layout/activity_main.xml"
+    }
+]
