@@ -259,7 +259,10 @@ function updateDashboardStatistics(stats) {
         statEmployeesLate: stats.employees_late,
         statOnWorkStatus: stats.on_work_status,
         statAttendanceRate: `${stats.attendance_rate}%`,
+        // RFID scans today — RFID taps only (separate counter from facial)
         statRfidScans: stats.rfid_scans_today,
+        // Facial scans today — face-recognition matches only
+        statFaceScans: stats.face_scans_today,
         statDepartments: stats.departments
     };
     Object.entries(values).forEach(([id, value]) => {
@@ -279,6 +282,7 @@ function updateStatProgressBars(stats) {
     const onWorkStatus = stats.on_work_status || 0;
     const attendanceRate = stats.attendance_rate || 0;
     const rfidScans = stats.rfid_scans_today || 0;
+    const faceScans = stats.face_scans_today || 0;
     
     // Total Employees bar (always full)
     const totalBar = document.querySelector('.stat-blue .stat-progress-bar');
@@ -305,19 +309,34 @@ function updateStatProgressBars(stats) {
         workStatusBar.style.width = `${Math.min(pct, 100)}%`;
     }
     
-    // Attendance Rate bar
+    // Attendance Rate bar (not currently shown but kept for safety)
     const rateBar = document.querySelector('.stat-cyan .stat-progress-bar');
     if (rateBar) {
         rateBar.style.width = `${Math.min(attendanceRate, 100)}%`;
     }
     
-    // RFID Scans bar
-    const rfidBar = document.querySelector('.stat-blue:last-child .stat-progress-bar');
+    // RFID Scans bar — first stat-blue card with progress bar after Present/Absent.
+    // We use a dedicated selector on the RFID card itself if it has one,
+    // otherwise fall back to the last .stat-blue block.
+    const rfidBar = document.getElementById('statRfidScans')
+        ? document.getElementById('statRfidScans').closest('.stat-card')?.querySelector('.stat-progress-bar')
+        : document.querySelector('.stat-blue:last-child .stat-progress-bar');
     if (rfidBar) {
         // Use a reasonable max (e.g., 100 scans) or scale dynamically
         const maxScans = 100;
         const pct = Math.min((rfidScans / maxScans) * 100, 100);
         rfidBar.style.width = `${pct}%`;
+    }
+
+    // Facial Scans bar — NEW. Uses its own card so it does not share
+    // the RFID progress bar even when both cards use similar styling.
+    const faceBar = document.getElementById('statFaceScans')
+        ? document.getElementById('statFaceScans').closest('.stat-card')?.querySelector('.stat-progress-bar')
+        : null;
+    if (faceBar) {
+        const maxScans = 100;
+        const pct = Math.min((faceScans / maxScans) * 100, 100);
+        faceBar.style.width = `${pct}%`;
     }
 }
 
@@ -2197,10 +2216,16 @@ async function loadActivityFeed() {
 }
 
 // ============ DAILY STATS FETCHER (PERSISTENT PRESENT + SCAN COUNTERS) ============
-// The server keeps track of these two numbers in storage/database/daily_stats.json.
+// The server keeps track of these numbers in storage/database/daily_stats.json.
 // They are written on EVERY RFID tap and face scan, regardless of whether any
-// dashboard is open. This lightweight endpoint lets us refresh just those two
+// dashboard is open. This lightweight endpoint lets us refresh just those
 // numbers frequently without re-downloading the full dashboard payload.
+//
+// The server now keeps THREE separate counters:
+//   • present_count    — unique employees who tapped in today
+//   • rfid_scan_count  — RFID taps only
+//   • face_scan_count  — facial-recognition matches only
+//   • scan_count       — total (RFID + face combined)
 
 async function loadDailyStats() {
     try {
@@ -2228,18 +2253,36 @@ async function loadDailyStats() {
     }
 }
 
-// Update ONLY the two count-based cards (Present Today, RFID Scans) with
-// the numbers returned by the server. Everything else on the dashboard
-// continues to come from /api/dashboard-data.
+// Update ONLY the count-based cards with the numbers returned by the server:
+//   • #statPresentToday  — from present_count
+//   • #statRfidScans     — from rfid_scan_count (RFID taps only)
+//   • #statFaceScans     — from face_scan_count (facial matches only)
+//
+// Everything else on the dashboard continues to come from
+// /api/dashboard-data.
 function applyDailyStatsToCards(dailyStats) {
     const presentEl = document.getElementById('statPresentToday');
     if (presentEl) presentEl.textContent = dailyStats.present_count ?? 0;
 
-    const scansEl = document.getElementById('statRfidScans');
-    if (scansEl) scansEl.textContent = dailyStats.scan_count ?? 0;
+    // RFID Scans card — RFID-only counter. Falls back to the combined
+    // scan_count if the server for some reason didn't send rfid_scan_count
+    // (keeps older backends working without error).
+    const rfidEl = document.getElementById('statRfidScans');
+    if (rfidEl) {
+        const rfidValue = (dailyStats.rfid_scan_count !== undefined)
+            ? dailyStats.rfid_scan_count
+            : (dailyStats.scan_count ?? 0);
+        rfidEl.textContent = rfidValue;
+    }
+
+    // Facial Scans card — face-only counter.
+    const faceEl = document.getElementById('statFaceScans');
+    if (faceEl) {
+        faceEl.textContent = dailyStats.face_scan_count ?? 0;
+    }
 
     // Refresh the small progress bars as well, since they depend on these
-    // two numbers. We re-use the existing bar-update helper by feeding it a
+    // numbers. We re-use the existing bar-update helper by feeding it a
     // minimal stats object — the rest of the fields stay whatever the last
     // /api/dashboard-data call set.
     updateStatProgressBars({
@@ -2248,7 +2291,10 @@ function applyDailyStatsToCards(dailyStats) {
         absent_today: (window.__lastStats && window.__lastStats.absent_today) || 0,
         on_work_status: (window.__lastStats && window.__lastStats.on_work_status) || 0,
         attendance_rate: (window.__lastStats && window.__lastStats.attendance_rate) || 0,
-        rfid_scans_today: dailyStats.scan_count ?? 0,
+        rfid_scans_today: (dailyStats.rfid_scan_count !== undefined)
+            ? dailyStats.rfid_scan_count
+            : (dailyStats.scan_count ?? 0),
+        face_scans_today: dailyStats.face_scan_count ?? 0,
     });
 
     // Remember the last-known values so the next call can fill in the gaps.
@@ -5391,8 +5437,8 @@ async function verifyDashboardSession() {
         ensureDTRSearchStyles();
 
         // Prime the daily stats cards immediately on session start so the
-        // Present Today and RFID Scans numbers are correct from the very
-        // first render — even before the next 5-second dashboard refresh.
+        // Present Today, RFID Scans, and Facial Scans numbers are correct
+        // from the very first render — even before the next 3-second poll.
         loadDailyStats();
     } catch (error) {
         redirectToLogin();
@@ -5708,9 +5754,10 @@ setInterval(loadDashboardData, 5000);
 setInterval(loadActivityFeed, 10000); // Refresh activity feed every 10 seconds
 
 // Poll the lightweight daily-stats endpoint every 3 seconds so the
-// Present Today and RFID Scans counters stay fresh without waiting for
-// the full 5-second dashboard refresh. This endpoint reads directly from
-// storage/database/daily_stats.json — the same file the RFID taps write to.
+// Present Today, RFID Scans, and Facial Scans counters stay fresh without
+// waiting for the full 5-second dashboard refresh. This endpoint reads
+// directly from storage/database/daily_stats.json — the same file the
+// RFID taps and face scanner write to.
 setInterval(loadDailyStats, 3000);
 
 updateClock();

@@ -203,18 +203,21 @@ WORK_STATUS_DATA_FILE = os.path.join(BASE_DIR, "storage", "database", "work-stat
 # ============================================================================
 # DAILY STATS LOG FILES - PERSISTENT DAILY COUNTERS
 # ============================================================================
-# These files track the DAILY totals for present employees and RFID scans.
-# They are written to on EVERY RFID tap (and face recognition) regardless of
-# whether any admin dashboard is open. They are reset automatically at midnight
-# by the scheduler, and also lazily on the first request after midnight.
+# These files track the DAILY totals for present employees, RFID scans, and
+# facial-recognition scans. They are written to on EVERY RFID tap and every
+# face match, regardless of whether any admin dashboard is open. They are
+# reset automatically at midnight by the scheduler, and also lazily on the
+# first request after midnight.
 #
 # Structure of daily_stats.json:
 #     {
-#         "date": "2026-09-28",           # the calendar day these counts are for
-#         "present_uids": ["021", "045"], # unique UIDs of employees who tapped in
-#         "present_count": 2,             # len(present_uids)
-#         "scan_count": 15,               # total RFID scans today
-#         "last_updated": "..."           # ISO timestamp of last write
+#         "date": "2026-09-28",              # the calendar day these counts are for
+#         "present_uids": ["021", "045"],    # unique UIDs of employees who tapped in
+#         "present_count": 2,                # len(present_uids)
+#         "scan_count": 15,                  # total scans today (RFID + face)
+#         "rfid_scan_count": 12,             # RFID taps only
+#         "face_scan_count": 3,              # facial-recognition matches only
+#         "last_updated": "..."              # ISO timestamp of last write
 #     }
 #
 # This file lives in storage/database/ so it is NOT wiped by the nightly feed
@@ -512,12 +515,14 @@ SCAN_COOLDOWN_SECONDS = 3 * 60
 # DAILY STATS HELPERS - PERSISTENT DAILY COUNTERS
 # ============================================================================
 # These functions manage the daily_stats.json file which tracks:
-#   - present_count : number of UNIQUE employees who tapped in today
-#   - scan_count    : total number of RFID scans today
+#   - present_count     : number of UNIQUE employees who tapped in today
+#   - scan_count        : total scans today (RFID + face combined)
+#   - rfid_scan_count   : RFID taps only
+#   - face_scan_count   : facial-recognition matches only
 #
-# The file is written to on EVERY RFID tap (see receive_rfid and faces_record)
-# so the counts are always accurate, regardless of whether any dashboard is
-# open. The dashboard merely READS these values via /api/dashboard-data.
+# The file is written to on EVERY RFID tap and every face match so the
+# counts are always accurate, regardless of whether any dashboard is open.
+# The dashboard merely READS these values via /api/dashboard-data.
 #
 # The file resets automatically at midnight:
 #   - The scheduler calls reset_daily_stats_if_needed() on the new day.
@@ -533,6 +538,8 @@ def _empty_daily_stats(date_str=None):
         "present_uids": [],
         "present_count": 0,
         "scan_count": 0,
+        "rfid_scan_count": 0,
+        "face_scan_count": 0,
         "last_updated": datetime.now().isoformat()
     }
 
@@ -540,7 +547,7 @@ def load_daily_stats():
     """Load the daily stats file, resetting it if the date has changed.
 
     Returns a dict with keys: date, present_uids, present_count, scan_count,
-    last_updated.
+    rfid_scan_count, face_scan_count, last_updated.
     """
     today = datetime.now().date().isoformat()
 
@@ -572,6 +579,11 @@ def load_daily_stats():
         data["present_count"] = len(data["present_uids"])
     if "scan_count" not in data:
         data["scan_count"] = 0
+    if "rfid_scan_count" not in data:
+        # Legacy files had only "scan_count" — treat all of it as RFID.
+        data["rfid_scan_count"] = int(data.get("scan_count", 0))
+    if "face_scan_count" not in data:
+        data["face_scan_count"] = 0
     data["present_count"] = len(data["present_uids"])
     if "last_updated" not in data:
         data["last_updated"] = datetime.now().isoformat()
@@ -598,20 +610,35 @@ def save_daily_stats(stats):
     stats["present_count"] = len(stats.get("present_uids", []))
     _write_daily_stats(stats)
 
-def record_daily_scan(uid=None):
-    """Record one RFID scan for today and, if uid is provided, one present employee.
+def record_daily_scan(uid=None, source="rfid"):
+    """Record one scan for today and, if uid is provided, one present employee.
 
-    This is called on EVERY RFID tap (and face recognition) so the daily
+    This is called on EVERY RFID tap and every face match so the daily
     counters are always up to date regardless of whether a dashboard is open.
 
     Args:
-        uid: The employee's uid if the RFID matched a known employee.
-             If None, only the scan_count is incremented (unknown card).
+        uid:    The employee's uid if the scan matched a known employee.
+                If None, only the scan counters are incremented.
+        source: "rfid" or "face" — which sub-counter to increment.
+                Defaults to "rfid" so existing callers keep working.
+
+    Both the combined scan_count AND the source-specific counter
+    (rfid_scan_count or face_scan_count) are incremented.
     """
     stats = load_daily_stats()
 
-    # Increment total scan count
+    source_norm = str(source or "rfid").strip().lower()
+    if source_norm not in ("rfid", "face"):
+        source_norm = "rfid"
+
+    # Increment total scan count (combined)
     stats["scan_count"] = int(stats.get("scan_count", 0)) + 1
+
+    # Increment the source-specific counter
+    if source_norm == "face":
+        stats["face_scan_count"] = int(stats.get("face_scan_count", 0)) + 1
+    else:
+        stats["rfid_scan_count"] = int(stats.get("rfid_scan_count", 0)) + 1
 
     # Increment unique present count if this is a known employee
     if uid:
@@ -2450,15 +2477,18 @@ def get_online_devices():
         for device_id, data in device_status.items()
     ]
 
-# Calculate live attendance totals from today's recognized RFID scans.
+# Calculate live attendance totals from today's recognized scans.
 def get_dashboard_statistics():
     """Return dashboard statistics.
 
-    IMPORTANT: present_today and rfid_scans_today are now read from the
-    PERSISTENT daily_stats.json file, NOT computed from the in-memory
-    scan_events list. This means the counts are always accurate on every
-    computer, even when no admin dashboard is open — because every RFID
-    tap writes to daily_stats.json immediately.
+    IMPORTANT: present_today, rfid_scans_today, and face_scans_today are now
+    read from the PERSISTENT daily_stats.json file, NOT computed from the
+    in-memory scan_events list. This means the counts are always accurate on
+    every computer, even when no admin dashboard is open — because every
+    RFID tap and every face match writes to daily_stats.json immediately.
+
+    • rfid_scans_today  -> RFID taps only
+    • face_scans_today  -> facial-recognition matches only
     """
     today = datetime.now().date()
     today_str = today.isoformat()
@@ -2466,7 +2496,9 @@ def get_dashboard_statistics():
     # --- Read the persistent daily counters --------------------------------
     daily_stats = load_daily_stats()
     present_today = int(daily_stats.get("present_count", 0))
-    rfid_scans_today = int(daily_stats.get("scan_count", 0))
+    rfid_scans_today = int(daily_stats.get("rfid_scan_count", 0))
+    face_scans_today = int(daily_stats.get("face_scan_count", 0))
+    total_scans_today = int(daily_stats.get("scan_count", 0))
 
     # All employees (regardless of RFID)
     all_employees = [
@@ -2520,7 +2552,11 @@ def get_dashboard_statistics():
         "employees_late": 0,
         "on_work_status": len(employees_on_work_status_today),
         "attendance_rate": attendance_rate,
+        # rfid_scans_today is now RFID-only. face_scans_today is face-only.
+        # total_scans_today is the combined number.
         "rfid_scans_today": rfid_scans_today,
+        "face_scans_today": face_scans_today,
+        "total_scans_today": total_scans_today,
         "departments": 0,
         "profile_images": profile_images,
         # Expose the date the counters are for so the UI can sanity-check it.
@@ -5396,10 +5432,11 @@ def faces_record():
         record, result = record_attendance_scan(employee, scanned_at)
         save_attendance_data()
 
-        # Record the daily stats (present + scan counts) so the counters
-        # are updated even when no dashboard is open.
+        # Record the daily stats (present + face scan counts) so the counters
+        # are updated even when no dashboard is open. The "face" source
+        # increments face_scan_count instead of rfid_scan_count.
         try:
-            record_daily_scan(uid=employee.get("uid"))
+            record_daily_scan(uid=employee.get("uid"), source="face")
         except Exception as e:
             print(f"Warning: failed to update daily stats from face scan: {e}")
 
@@ -5507,7 +5544,8 @@ def faces_recent_attendance():
 def faces_dashboard_stats():
     try:
         # get_dashboard_statistics() already includes "profile_images" now —
-        # counted directly from files on disk in storage/profiles/.
+        # counted directly from files on disk in storage/profiles/. It also
+        # returns the SEPARATE rfid_scans_today and face_scans_today counters.
         stats = get_dashboard_statistics()
         stats["face_scanner_active"] = True
         return jsonify({"status": "success", "stats": stats})
@@ -6248,6 +6286,29 @@ def get_latest_rfid():
         "attendance": attendance_data
     }), 200
 
+# ============================================================================
+# OPTIONAL LIGHTWEIGHT DAILY-STATS ENDPOINT
+# ============================================================================
+# Returns ONLY today's present + scan counters (including the separate
+# rfid_scan_count and face_scan_count) without pulling the full dashboard
+# payload. The dashboard polls this every few seconds to keep the Present
+# Today / RFID Scans / Facial Scans cards fresh without a full refresh.
+@app.route("/api/daily-stats", methods=["GET"])
+def get_daily_stats():
+    stats = load_daily_stats()
+    return jsonify({
+        "status": "success",
+        "data": {
+            "date": stats.get("date"),
+            "present_count": stats.get("present_count", 0),
+            "scan_count": stats.get("scan_count", 0),
+            "rfid_scan_count": stats.get("rfid_scan_count", 0),
+            "face_scan_count": stats.get("face_scan_count", 0),
+            "present_uids": stats.get("present_uids", []),
+            "last_updated": stats.get("last_updated")
+        }
+    }), 200
+
 # Reload users.json into the in-memory RFID lookup database.
 @app.route("/api/reload-db", methods=["POST"])
 def reload_db():
@@ -6335,12 +6396,11 @@ def receive_rfid():
         employee = employee_database.get(rfid)
         found = bool(employee)
 
-        # Record the daily stats (present + scan counts) IMMEDIATELY, regardless
-        # of whether any dashboard is open. This is the fix for the "counts only
-        # update when admin is logged in" bug — the counters now live on the
-        # server in daily_stats.json.
+        # Record the daily stats (present + RFID scan counts) IMMEDIATELY,
+        # regardless of whether any dashboard is open. The "rfid" source
+        # increments rfid_scan_count instead of face_scan_count.
         try:
-            record_daily_scan(uid=employee.get("uid") if employee else None)
+            record_daily_scan(uid=employee.get("uid") if employee else None, source="rfid")
         except Exception as e:
             print(f"Warning: failed to update daily stats: {e}")
 
@@ -6399,6 +6459,7 @@ def page_not_found(e):
 @app.route("/api/session", methods=["OPTIONS"])
 @app.route("/api/logout", methods=["OPTIONS"])
 @app.route("/api/dashboard-data", methods=["OPTIONS"])
+@app.route("/api/daily-stats", methods=["OPTIONS"])
 @app.route("/api/verify-token", methods=["OPTIONS"])
 @app.route("/api/register-employee", methods=["OPTIONS"])
 @app.route("/api/update-employee/<rfid>", methods=["OPTIONS"])

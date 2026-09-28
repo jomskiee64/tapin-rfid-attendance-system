@@ -20,7 +20,13 @@ console.log("[faces.js] API_BASE =", API_BASE);
 
 const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
 const MATCH_THRESHOLD = 0.50; // Lower = stricter
-const ATTENDANCE_COOLDOWN = 10000; // 10 seconds between scans
+
+// Per-person cooldown between recorded attendance events. 3 minutes = 180000 ms.
+// The server also has its own cooldown inside the DTR slot machine, but this
+// client-side timer prevents the browser from even SENDING duplicate requests
+// while the same person stays in front of the camera.
+const ATTENDANCE_COOLDOWN = 180000; // 3 minutes between scans per person
+
 const STATS_REFRESH_MS = 10000; // Refresh "Present Today" + stats every 10s
 
 const video = document.getElementById("video");
@@ -385,11 +391,16 @@ async function recordAttendance(match) {
   const now = Date.now();
   const previous = lastSent.get(key) || 0;
 
+  // Enforce the 3-minute per-person cooldown. The camera sees the same
+  // person many times per second, so without this the scanner would send
+  // a fresh attendance event on every single frame.
   if (now - previous < ATTENDANCE_COOLDOWN) {
     return;
   }
 
-  // ⚠️ CRITICAL: set the cooldown timestamp BEFORE the async fetch() call.
+  // ⚠️ CRITICAL: set the cooldown timestamp BEFORE the async fetch() call
+  // so a slow server response doesn't allow a second identical request
+  // to slip through while the first one is still in flight.
   lastSent.set(key, now);
 
   try {
