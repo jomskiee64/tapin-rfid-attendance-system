@@ -10,7 +10,6 @@ int drawable ic_tapin_logo 0x0
 int id offlineView 0x0
 int id progressBar 0x0
 int id retryButton 0x0
-int id splashLogo 0x0
 int id splashOverlay 0x0
 int id swipeRefresh 0x0
 int id webView 0x0

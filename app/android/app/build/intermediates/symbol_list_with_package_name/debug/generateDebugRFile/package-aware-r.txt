@@ -11,7 +11,6 @@ drawable ic_tapin_logo
 id offlineView
 id progressBar
 id retryButton
-id splashLogo
 id splashOverlay
 id swipeRefresh
 id webView

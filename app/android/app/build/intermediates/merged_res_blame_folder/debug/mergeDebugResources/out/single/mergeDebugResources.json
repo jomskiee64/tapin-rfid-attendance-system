@@ -4,6 +4,10 @@
         "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/mipmap-xhdpi/ic_launcher.png"
     },
     {
+        "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/drawable_ic_tapin_logo.xml.flat",
+        "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/drawable/ic_tapin_logo.xml"
+    },
+    {
         "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/layout_activity_main.xml.flat",
         "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/layout/activity_main.xml"
     },
@@ -40,16 +44,12 @@
         "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/xml/file_paths.xml"
     },
     {
-        "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/mipmap-mdpi_ic_launcher.png.flat",
-        "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/mipmap-mdpi/ic_launcher.png"
-    },
-    {
         "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/mipmap-anydpi-v26_ic_launcher.xml.flat",
         "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/mipmap-anydpi-v26/ic_launcher.xml"
     },
     {
-        "merged": "com.tapin.attendance.app-debug-37:/drawable_ic_tapin_logo.xml.flat",
-        "source": "com.tapin.attendance.app-main-39:/drawable/ic_tapin_logo.xml"
+        "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-main-39:/mipmap-mdpi/ic_launcher.png"
     },
     {
         "merged": "/home/lolenseu/.gradle/daemon/9.6.0/com.tapin.attendance.app-debug-37:/mipmap-hdpi_ic_launcher_round.png.flat",

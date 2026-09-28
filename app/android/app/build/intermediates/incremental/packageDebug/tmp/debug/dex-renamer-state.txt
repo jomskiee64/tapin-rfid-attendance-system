@@ -1,9 +1,9 @@
-#Mon Sep 28 19:27:04 PST 2026
-base.0=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex
-base.1=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/dex/debug/mergeProjectDexDebug/0/classes.dex
-base.2=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/dex/debug/mergeProjectDexDebug/3/classes.dex
-base.3=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/dex/debug/mergeProjectDexDebug/8/classes.dex
-base.4=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/global_synthetics_dex/debug/generateDebugGlobalSynthetics/classes.dex
+#Mon Sep 28 20:18:24 PST 2026
+base.0=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex
+base.1=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/dex/debug/mergeProjectDexDebug/0/classes.dex
+base.2=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/dex/debug/mergeProjectDexDebug/3/classes.dex
+base.3=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/dex/debug/mergeProjectDexDebug/8/classes.dex
+base.4=/home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/global_synthetics_dex/debug/generateDebugGlobalSynthetics/classes.dex
 path.0=classes.dex
 path.1=0/classes.dex
 path.2=3/classes.dex

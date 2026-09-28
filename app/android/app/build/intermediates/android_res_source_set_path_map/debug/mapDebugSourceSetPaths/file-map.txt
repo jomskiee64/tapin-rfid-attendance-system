@@ -1,8 +1,8 @@
-com.tapin.attendance.app-pngs-0 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/generated/res/pngs/debug
-com.tapin.attendance.app-updated_navigation_xml-1 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/generated/updated_navigation_xml/debug
-com.tapin.attendance.app-packageDebugResources-2 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
-com.tapin.attendance.app-packageDebugResources-3 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
-com.tapin.attendance.app-debug-4 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/build/intermediates/merged_res/debug/mergeDebugResources
-com.tapin.attendance.app-debug-5 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/src/debug/res
-com.tapin.attendance.app-main-6 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/app/src/main/res
+com.tapin.attendance.app-pngs-0 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/generated/res/pngs/debug
+com.tapin.attendance.app-updated_navigation_xml-1 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/generated/updated_navigation_xml/debug
+com.tapin.attendance.app-packageDebugResources-2 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+com.tapin.attendance.app-packageDebugResources-3 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+com.tapin.attendance.app-debug-4 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/build/intermediates/merged_res/debug/mergeDebugResources
+com.tapin.attendance.app-debug-5 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/src/debug/res
+com.tapin.attendance.app-main-6 /home/lolenseu/VScode/tapin-rfid-attendance-system/app/android/app/src/main/res
 gradleHome-0 /home/lolenseu/.gradle

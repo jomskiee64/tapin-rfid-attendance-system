@@ -3,6 +3,7 @@ package com.tapin.attendance
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -132,6 +133,8 @@ class MainActivity : AppCompatActivity() {
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
+            @Suppress("DEPRECATION")
+            cameraImageUri = savedInstanceState.getParcelable("cameraImageUri") as? Uri
         } else {
             loadHome()
         }
@@ -217,13 +220,22 @@ class MainActivity : AppCompatActivity() {
                 filePathCallback = callback
 
                 val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                var photoUri: Uri? = null
-                if (takePictureIntent.resolveActivity(packageManager) != null) {
+                var photoUri: Uri?
+                try {
                     photoUri = createCameraImageUri()
                     if (photoUri != null) {
                         takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                        takePictureIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                         cameraImageUri = photoUri
+
+                        val resInfoList = packageManager.queryIntentActivities(takePictureIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                        for (resolveInfo in resInfoList) {
+                            val packageName = resolveInfo.activityInfo.packageName
+                            grantUriPermission(packageName, photoUri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
                     }
+                } catch (_: Exception) {
+                    photoUri = null
                 }
 
                 val contentSelectionIntent = params.createIntent()
@@ -274,7 +286,13 @@ class MainActivity : AppCompatActivity() {
                     if (needsAudio && !audioGranted) {
                         permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
                     }
-                    permissionsLauncher.launch(permissionsToRequest.toTypedArray())
+                    if (permissionsToRequest.isNotEmpty()) {
+                        runOnUiThread {
+                            permissionsLauncher.launch(permissionsToRequest.toTypedArray())
+                        }
+                    } else {
+                        runOnUiThread { request.grant(resources) }
+                    }
                 }
             }
         }

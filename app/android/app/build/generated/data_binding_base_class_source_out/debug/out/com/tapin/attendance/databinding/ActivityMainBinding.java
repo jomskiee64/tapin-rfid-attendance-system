@@ -6,7 +6,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
 import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import androidx.annotation.NonNull;
@@ -34,9 +33,6 @@ public final class ActivityMainBinding implements ViewBinding {
   public final Button retryButton;
 
   @NonNull
-  public final ImageView splashLogo;
-
-  @NonNull
   public final LinearLayout splashOverlay;
 
   @NonNull
@@ -46,14 +42,13 @@ public final class ActivityMainBinding implements ViewBinding {
   public final WebView webView;
 
   private ActivityMainBinding(@NonNull ConstraintLayout rootView, @NonNull LinearLayout offlineView,
-      @NonNull ProgressBar progressBar, @NonNull Button retryButton, @NonNull ImageView splashLogo,
+      @NonNull ProgressBar progressBar, @NonNull Button retryButton,
       @NonNull LinearLayout splashOverlay, @NonNull SwipeRefreshLayout swipeRefresh,
       @NonNull WebView webView) {
     this.rootView = rootView;
     this.offlineView = offlineView;
     this.progressBar = progressBar;
     this.retryButton = retryButton;
-    this.splashLogo = splashLogo;
     this.splashOverlay = splashOverlay;
     this.swipeRefresh = swipeRefresh;
     this.webView = webView;
@@ -104,12 +99,6 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
-      id = R.id.splashLogo;
-      ImageView splashLogo = ViewBindings.findChildViewById(rootView, id);
-      if (splashLogo == null) {
-        break missingId;
-      }
-
       id = R.id.splashOverlay;
       LinearLayout splashOverlay = ViewBindings.findChildViewById(rootView, id);
       if (splashOverlay == null) {
@@ -129,7 +118,7 @@ public final class ActivityMainBinding implements ViewBinding {
       }
 
       return new ActivityMainBinding((ConstraintLayout) rootView, offlineView, progressBar,
-          retryButton, splashLogo, splashOverlay, swipeRefresh, webView);
+          retryButton, splashOverlay, swipeRefresh, webView);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));
