@@ -814,7 +814,7 @@ body.sidebar-collapsed .nav-item.active .nav-icon {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   transition: box-shadow var(--transition), transform var(--transition);
-  overflow: hidden;
+  overflow: visible; /* was: hidden — clipped the DTR/Employee search dropdowns */
 }
 
 /* Ensure cards never exceed the container width and their body fits the viewport */
@@ -960,10 +960,10 @@ body.sidebar-collapsed .nav-item.active .nav-icon {
 }
 
 /* Stat card color variants */
-.stat-blue .stat-icon-wrap { background: var(--primary-light); color: var(--primary); }
+.stat-blue .stat-icon-wrap { background: var(--success-light); color: var(--success); }
 .stat-blue .stat-icon-wrap i { color: var(--success); }
-.stat-blue .stat-progress-bar { background: linear-gradient(90deg, var(--primary), var(--secondary)); }
-.stat-blue::before { background: var(--primary); }
+.stat-blue .stat-progress-bar { background: linear-gradient(90deg, var(--success), #4ADE80); }
+.stat-blue::before { background: var(--success); }
 
 .stat-green .stat-icon-wrap { background: var(--success-light); color: var(--success); }
 .stat-green .stat-progress-bar { background: linear-gradient(90deg, var(--success), #4ADE80); }
@@ -1696,8 +1696,19 @@ body.sidebar-collapsed .nav-item.active .nav-icon {
     box-shadow: var(--shadow-lg);
     max-height: 300px;
     overflow-y: auto;
-    z-index: 300;
+    z-index: 3000; /* raised from 300 so it floats above sibling cards */
     scrollbar-width: thin;
+}
+
+/* Anchor the dropdown to a stacking context above sibling cards */
+.form-group:has(> .dtr-search-wrap) {
+    position: relative;
+    z-index: 50;
+}
+
+/* Section wrapper must not clip the floating dropdown */
+.page-section {
+    overflow: visible;
 }
 
 .dtr-search-dropdown::-webkit-scrollbar { width: 6px; }

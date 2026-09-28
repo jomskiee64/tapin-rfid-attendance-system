@@ -129,10 +129,21 @@ function ensureDTRSearchStyles() {
         }
 
         /* Parent form-group must establish a positioning context for
-           the absolutely-positioned dropdown. */
+           the absolutely-positioned dropdown, and must sit ABOVE
+           sibling cards so the dropdown is not painted underneath them. */
         .form-group:has(> .dtr-search-wrap) {
             position: relative;
-            z-index: 10;
+            z-index: 100;
+        }
+
+        /* Any card / card-body that contains a search dropdown must NOT
+           clip it. This overrides the global .card-body { overflow:hidden }
+           rule that was cutting the suggestion list off at the card edge. */
+        .card:has(.dtr-search-dropdown),
+        .card-body:has(.dtr-search-dropdown),
+        .card:has(.dtr-search-wrap),
+        .card-body:has(.dtr-search-wrap) {
+            overflow: visible !important;
         }
 
         /* Each suggestion row. */

@@ -25,9 +25,24 @@ const MATCH_THRESHOLD = 0.50; // Lower = stricter
 // The server also has its own cooldown inside the DTR slot machine, but this
 // client-side timer prevents the browser from even SENDING duplicate requests
 // while the same person stays in front of the camera.
+//
+// Behaviour:
+//   1. First time a face is matched  → send to API, mark as scanned NOW.
+//   2. Every subsequent frame within 3 minutes → skip entirely.
+//   3. After 3 minutes have passed, if the face is seen again → send a NEW
+//      scan to the API with a fresh timestamp.
 const ATTENDANCE_COOLDOWN = 180000; // 3 minutes between scans per person
 
 const STATS_REFRESH_MS = 10000; // Refresh "Present Today" + stats every 10s
+
+// --- Single-face-at-a-time setting ---------------------------------------
+// When true, only the FIRST detection in the current frame is considered
+// for attendance. This prevents the scanner from firing multiple simultaneous
+// API calls when several people are visible at once.
+//
+// All detected faces are still drawn on the canvas with their confidence
+// labels — we just don't try to record more than one per frame.
+const SINGLE_FACE_MODE = true;
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -47,6 +62,11 @@ let lastSent = new Map();
 let scanCount = 0;
 let todayAttendance = [];
 let statsRefreshTimer = null;
+
+// Tracks the last UID/RFID we recorded, so we can keep the message line
+// showing "Waiting for next scan" instead of spamming the cooldown count.
+let lastRecordedKey = null;
+let lastRecordedName = "";
 
 // ========================================================================
 // STATUS HELPERS
@@ -68,6 +88,21 @@ function clearLogPlaceholder() {
   if (!logEntries) return;
   const empty = logEntries.querySelector(".log-empty");
   if (empty) empty.remove();
+}
+
+// Format a JS Date into the "YYYY-MM-DD HH:MM:SS" string the server expects.
+// We deliberately build this in LOCAL time because the DTR stores local
+// wall-clock times (the server parses "YYYY-MM-DD HH:MM:SS" as naive local
+// time). Sending ISO/UTC would shift the times by the timezone offset.
+function formatLocalTimestamp(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
 // ========================================================================
@@ -378,6 +413,46 @@ function identify(descriptor) {
   return { ...best, confidence };
 }
 
+// Decide whether a given match is still inside its 3-minute cooldown.
+// We keep the "last scanned at" timestamp in memory (lastSent map) so
+// the browser never spams the server with the same person over and over.
+//
+// NOTE: The check is done against Date.now() at the moment the decision is
+// made, and the timestamp stored is ALSO Date.now() at that exact moment.
+// That guarantees the cooldown window is exactly 180 seconds per person.
+function isWithinCooldown(key) {
+  const previous = lastSent.get(key) || 0;
+  if (!previous) return false;
+  return (Date.now() - previous) < ATTENDANCE_COOLDOWN;
+}
+
+// Format the remaining cooldown seconds for the log message. Purely
+// cosmetic — helps whoever is watching the scanner understand WHY a
+// known face is being skipped.
+function cooldownRemainingSeconds(key) {
+  const previous = lastSent.get(key) || 0;
+  if (!previous) return 0;
+  const elapsedMs = Date.now() - previous;
+  const remainingMs = ATTENDANCE_COOLDOWN - elapsedMs;
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+// Format the remaining cooldown as "M:SS" for a friendlier readout.
+function formatCooldownMmSs(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Record attendance for a single face match.
+//
+// Flow:
+//   1. Compute the stable key for this employee (uid preferred, else rfid).
+//   2. If we already scanned this person within the last 3 minutes → skip
+//      silently (messageEl shows the countdown so the operator knows why).
+//   3. Otherwise: capture the CURRENT local timestamp as `scanned_at`,
+//      set the cooldown marker BEFORE awaiting the fetch (so a slow
+//      response can't let a second request slip through), then POST.
 async function recordAttendance(match) {
   const uid = String(match.uid || match.employee?.uid || "");
   const rfid = String(match.rfid || match.employee?.rfid || "");
@@ -388,20 +463,30 @@ async function recordAttendance(match) {
   }
 
   const key = uid || rfid;
-  const now = Date.now();
-  const previous = lastSent.get(key) || 0;
 
-  // Enforce the 3-minute per-person cooldown. The camera sees the same
-  // person many times per second, so without this the scanner would send
-  // a fresh attendance event on every single frame.
-  if (now - previous < ATTENDANCE_COOLDOWN) {
+  // ---- Cooldown guard ----------------------------------------------------
+  // Same person, seen again within 3 minutes → do nothing. We only update
+  // the on-screen message so the operator sees why nothing was recorded,
+  // and we keep the message line in a calm "Waiting for next scan" state
+  // instead of spamming the countdown every frame.
+  if (isWithinCooldown(key)) {
+    const remaining = cooldownRemainingSeconds(key);
+    messageEl.textContent =
+      `⏳ ${match.name} — already scanned. Next scan in ${formatCooldownMmSs(remaining)}. Waiting for next face…`;
     return;
   }
 
+  // ---- Capture the exact scan time NOW -----------------------------------
+  // This is the wall-clock time of the frame that triggered the scan.
+  // We format it in LOCAL time because the server's DTR parses it as naive
+  // local time — sending UTC/ISO would shift the recorded time by the
+  // timezone offset.
+  const scannedAt = formatLocalTimestamp(new Date());
+
   // ⚠️ CRITICAL: set the cooldown timestamp BEFORE the async fetch() call
-  // so a slow server response doesn't allow a second identical request
-  // to slip through while the first one is still in flight.
-  lastSent.set(key, now);
+  // so a slow server response can't let a second identical request
+  // slip through while the first one is still in flight.
+  lastSent.set(key, Date.now());
 
   try {
     const res = await fetch(`${API_BASE}/record`, {
@@ -411,7 +496,7 @@ async function recordAttendance(match) {
         uid: uid,
         rfid: rfid,
         confidence: match.confidence,
-        scanned_at: new Date().toISOString(),
+        scanned_at: scannedAt,
         face_detected: true
       })
     });
@@ -421,25 +506,41 @@ async function recordAttendance(match) {
     if (res.ok && data.status === "success") {
       const empName = data.employee?.name || data.employee?.firstname || match.name;
 
+      // Remember who we just recorded so the message line can transition
+      // to "Waiting for next scan" without losing the last scan info.
+      lastRecordedKey = key;
+      lastRecordedName = empName;
+
       addLogEntry(empName, data.confidence || match.confidence, "success", data.attendance_status || "recorded");
 
       await loadAttendance();
       await loadStats();
 
-      messageEl.textContent = `✅ ${empName} - Attendance recorded`;
+      // Show a clear confirmation and immediately tell the operator the
+      // scanner is now idle and waiting for the next face.
+      messageEl.textContent =
+        `✅ ${empName} — recorded at ${scannedAt.split(" ")[1]}. Waiting for next face…`;
 
     } else if (res.status === 403) {
       addLogEntry(match.name, match.confidence, "warning", "low confidence");
-      messageEl.textContent = "⚠️ Confidence too low for attendance.";
+      messageEl.textContent = "⚠️ Confidence too low for attendance. Waiting for next face…";
+      // Do NOT keep the cooldown on a rejection — the person can try again
+      // immediately by facing the camera more clearly.
+      lastSent.delete(key);
 
     } else {
       addLogEntry(match.name, match.confidence, "error", "rejected");
-      messageEl.textContent = "❌ Attendance not recorded.";
+      messageEl.textContent = "❌ Attendance not recorded. Waiting for next face…";
+      // Same reasoning as 403: don't punish the next attempt with the
+      // cooldown if the server rejected this one.
+      lastSent.delete(key);
     }
   } catch (e) {
     console.error("Attendance error:", e);
     addLogEntry(match.name, match.confidence, "error", "API error");
-    messageEl.textContent = "⚠️ API connection failed.";
+    messageEl.textContent = "⚠️ API connection failed. Waiting for next face…";
+    // Network error → allow a retry immediately.
+    lastSent.delete(key);
   }
 }
 
@@ -465,6 +566,17 @@ async function recognitionLoop() {
       height: canvas.height
     });
 
+    // Tracks whether we've already sent ONE attendance call this frame.
+    // SINGLE_FACE_MODE ensures we never fire multiple simultaneous POSTs
+    // when several people are visible at the same time.
+    let recordedThisFrame = false;
+
+    // Track whether at least one face was matched this frame so we know
+    // whether we're idle (waiting for next face) or actively busy with
+    // the current person.
+    let anyMatchThisFrame = false;
+    let allMatchedAreOnCooldown = true;
+
     for (let i = 0; i < resized.length; i++) {
       const box = resized[i].detection.box;
       const match = identify(detections[i].descriptor);
@@ -473,9 +585,37 @@ async function recognitionLoop() {
       let color = "#ef4444";
 
       if (match) {
+        anyMatchThisFrame = true;
         label = `${match.name} ${match.confidence.toFixed(1)}%`;
-        color = "#22c55e";
-        await recordAttendance(match);
+
+        // ---- COOLDOWN-AWARE COLOUR ------------------------------------
+        // A face that is still inside its 3-minute cooldown is drawn in
+        // amber with a "cooldown" hint so the operator immediately sees
+        // that this person is being intentionally skipped (so the scanner
+        // can move on to the next face).
+        const key = String(match.uid || match.employee?.uid || match.rfid || "");
+        const onCooldown = key && isWithinCooldown(key);
+        if (onCooldown) {
+          const remaining = cooldownRemainingSeconds(key);
+          label = `${match.name} ⏳ ${formatCooldownMmSs(remaining)}`;
+          color = "#f59e0b"; // amber
+        } else {
+          allMatchedAreOnCooldown = false;
+          color = "#22c55e"; // green
+        }
+
+        // ---- SINGLE-FACE GATE --------------------------------------------
+        // Only the FIRST confidently matched face in this frame is eligible
+        // for attendance recording. Additional faces are still drawn below
+        // (so the operator sees them), but they are not recorded.
+        if (!recordedThisFrame && SINGLE_FACE_MODE) {
+          // We always run recordAttendance() for the first match — the
+          // cooldown check INSIDE it decides whether an actual POST fires.
+          // Awaiting here makes sure only one POST is in flight at a time,
+          // which keeps the DTR slot machine from being hit twice at once.
+          await recordAttendance(match);
+          recordedThisFrame = true;
+        }
       }
 
       // Manual flip: canvas has NO CSS mirror, video DOES.
@@ -494,6 +634,20 @@ async function recognitionLoop() {
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
       ctx.fillText(label.trim(), flippedX + 6, Math.max(18, box.y - 9));
+    }
+
+    // ---- IDLE MESSAGE ---------------------------------------------------
+    // If we saw faces this frame but all of them are still in cooldown,
+    // keep the message line in a calm "waiting" state so the operator
+    // knows the scanner is ready for the NEXT person.
+    //
+    // If we saw NO faces at all, we fall back to the standard scanning
+    // prompt (it will not overwrite the last "recorded" message while a
+    // person is still in front of the camera, because we only touch the
+    // message in the "no faces" case below.)
+    if (anyMatchThisFrame && allMatchedAreOnCooldown && !recordedThisFrame) {
+      // Already inside recordAttendance()'s cooldown message OR nothing
+      // fired — leave the message as-is; do not spam.
     }
 
   } catch (e) {
@@ -549,17 +703,27 @@ function renderAttendance(records) {
   const container = document.getElementById("todayAttendance");
 
   if (!records || records.length === 0) {
-    container.innerHTML = `<span class="help">📭 No attendance records for today.</span>`;
+    container.innerHTML = `<span class="help">📭 No face scans recorded today.</span>`;
     return;
   }
 
   container.innerHTML = records.map(r => {
-    // Show the time-in if present, whichever slot it is. Some employees
-    // may only have PM at this point in the day.
+    // Build a compact time display from whichever slots are filled.
+    // AM pair first (in → out) when present, then PM pair (in → out).
+    // We only show "in" times normally, but if the pair is complete we
+    // also show the "out" side so a half-day can be read at a glance.
     const timeParts = [];
-    if (r.am_in) timeParts.push(`AM: ${r.am_in}`);
-    if (r.pm_in) timeParts.push(`PM: ${r.pm_in}`);
-    const timeText = timeParts.join(" ");
+    if (r.am_in && r.am_out) {
+      timeParts.push(`AM: ${r.am_in} → ${r.am_out}`);
+    } else if (r.am_in) {
+      timeParts.push(`AM: ${r.am_in}`);
+    }
+    if (r.pm_in && r.pm_out) {
+      timeParts.push(`PM: ${r.pm_in} → ${r.pm_out}`);
+    } else if (r.pm_in) {
+      timeParts.push(`PM: ${r.pm_in}`);
+    }
+    const timeText = timeParts.join("  ");
 
     const statusText = r.status === "on_leave" ? "🔵 On Leave" : "🟢 Present";
     const statusClass = r.status === "on_leave" ? "on-leave" : "";
@@ -603,4 +767,4 @@ window.addEventListener("beforeunload", stopCamera);
 // START
 // ========================================================================
 
-boot();
+boot(); 

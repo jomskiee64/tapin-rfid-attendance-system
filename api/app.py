@@ -1937,7 +1937,8 @@ def get_attendance_record(employee, scan_date):
 
 # Determine if a time is AM or PM period
 # NOTE: Kept for backwards compatibility but no longer used to pick the slot.
-# Slot selection is now purely sequential (see determine_scan_type).
+# Slot selection is now handled by determine_scan_type(), which uses the
+# 24-hour clock AND the current fill state of the DTR day.
 def get_period(scan_time):
     """Return 'am' if hour < 12, else 'pm'"""
     return "am" if scan_time.hour < 12 else "pm"
@@ -1996,45 +1997,64 @@ def is_period_affected_by_work_status(day_data, period):
     return get_work_status_for_period(day_data, period) is not None
 
 # ============================================================================
-# SEQUENTIAL SLOT-FILLING LOGIC
+# TIME-AWARE SEQUENTIAL SLOT-FILLING LOGIC
 # ============================================================================
-# The DTR has four time slots, always filled in this exact order:
+# The DTR has four time slots, filled using BOTH the 24-hour clock time of
+# the scan AND how many slots are already filled:
 #
-#     1. am_in   (first tap of the day)
-#     2. am_out  (second tap)
-#     3. pm_in   (third tap)
-#     4. pm_out  (fourth tap)
+#     1. am_in   (first morning tap)
+#     2. am_out  (second morning tap / first closing tap)
+#     3. pm_in   (first afternoon tap)
+#     4. pm_out  (last afternoon tap)
 #
-# The slot is chosen by how many slots are ALREADY filled, NOT by the
-# wall-clock time of the tap. This means:
+# Realistic scenarios this handles:
 #
-#   • 07:30 first tap    -> am_in  = "07:30"
-#   • 12:45 second tap   -> am_out = "12:45"   (still goes on the AM side)
-#   • 13:02 third tap    -> pm_in  = "13:02"
-#   • 17:15 fourth tap   -> pm_out = "17:15"
+#   • Regular morning employee
+#         07:30 (first)  -> am_in
+#         11:30 (second) -> am_out
+#         13:00 (third)  -> pm_in
+#         17:00 (fourth) -> pm_out
 #
-# If the employee only taps twice all day, am_in and am_out get the values
-# — even if the second tap happened in the afternoon. If the employee taps
-# four times, all four slots are filled in order.
+#   • Afternoon-only employee (arrives at/after noon)
+#         13:00 (first)  -> pm_in     (NOT am_in)
+#         17:00 (second) -> pm_out    (NOT am_out)
 #
-# Any fifth-or-later tap for the same day is ignored (all slots full).
+#   • Late arrival (12:30 first tap) – afternoon time, nothing filled yet
+#         12:30 (first)  -> pm_in     (Rule A: no AM slots filled yet)
 #
-# Cooldown: two consecutive taps in the SAME direction (in / out) within
-# SCAN_COOLDOWN_SECONDS are still blocked to prevent accidental double-taps
-# from burning a slot.
+#   • Early riser who then taps again in the afternoon
+#         07:30 (first)  -> am_in
+#         14:00 (second) -> am_out    (Rule C: finish AM before PM)
+#         17:00 (third)  -> pm_in
+#
+# All times are stored in 24-hour HH:MM so AM/PM is never ambiguous.
 # ============================================================================
 
 def determine_scan_type(day_data, scan_time, employee):
     """
-    Decide which DTR slot the current tap should fill, based purely on how
-    many slots are already filled — NOT on the wall-clock time.
+    Decide which DTR slot the current tap should fill, using BOTH:
+      • the 24-hour wall-clock time of the scan, and
+      • how many slots are already filled.
 
-    Order of filling:
-        0 filled -> ("am", "in")   => day_data["am_in"]
-        1 filled -> ("am", "out")  => day_data["am_out"]
-        2 filled -> ("pm", "in")   => day_data["pm_in"]
-        3 filled -> ("pm", "out")  => day_data["pm_out"]
-        4 filled -> None           (all slots full)
+    This lets us handle all the realistic cases correctly:
+
+    ─ Regular morning employee ─────────────────────────────────────
+        07:30 (first tap)   -> am_in
+        11:30 (second tap)  -> am_out
+        13:00 (third tap)   -> pm_in
+        17:00 (fourth tap)  -> pm_out
+
+    ─ Afternoon-only employee (arrives at noon or later) ────────────
+        13:00 (first tap)   -> pm_in          (NOT am_in)
+        17:00 (second tap)  -> pm_out         (NOT am_out)
+
+    ─ Late arrival but nothing filled yet ──────────────────────────
+        12:30 (first tap)   -> pm_in          (Rule A: no AM slots filled yet)
+
+    ─ Early arrival, PM time, AM already started ───────────────────
+        07:30 (first tap)   -> am_in
+        14:00 (second tap)  -> am_out         (Rule C: finish AM before PM)
+        17:00 (third tap)   -> pm_in
 
     Returns:
         (period, scan_type)  where period is "am" | "pm" and scan_type is
@@ -2057,28 +2077,78 @@ def determine_scan_type(day_data, scan_time, employee):
             return None
         # Specific-time work status (AM or PM only) is fine — allow the scan.
 
-    # ---- 2) Count how many slots are already filled ------------------------
-    # The order in which we check MATTERS: it defines the fill order.
-    fill_order = ["am_in", "am_out", "pm_in", "pm_out"]
-    filled_count = 0
-    for slot in fill_order:
-        if day_data.get(slot):
-            filled_count += 1
+    # ---- 2) Read the wall-clock hour in 24-hour format ---------------------
+    # scan_time is a datetime, so .hour is already 0–23.
+    is_pm_time = scan_time.hour >= 12
 
-    if filled_count >= 4:
+    # ---- 3) Check which slots are already filled ---------------------------
+    has_am_in = bool(day_data.get("am_in"))
+    has_am_out = bool(day_data.get("am_out"))
+    has_pm_in = bool(day_data.get("pm_in"))
+    has_pm_out = bool(day_data.get("pm_out"))
+
+    am_filled = has_am_in and has_am_out
+    pm_filled = has_pm_in and has_pm_out
+
+    if am_filled and pm_filled:
         print(f"All time slots filled for {rfid}")
         return None
 
-    # ---- 3) Map filled_count -> the next slot to fill ----------------------
-    slot_map = [
-        ("am", "in"),   # 0 filled -> am_in
-        ("am", "out"),  # 1 filled -> am_out
-        ("pm", "in"),   # 2 filled -> pm_in
-        ("pm", "out"),  # 3 filled -> pm_out
-    ]
-    period, scan_type = slot_map[filled_count]
+    # ---- 4) Decide the next slot based on time AND fill state -------------
+    #
+    # Rule A — it's PM time and NOTHING has been filled yet.
+    #   Employee is arriving for the first time in the afternoon.
+    #   -> Start directly at pm_in. (Do NOT put "13:00" into am_in.)
+    #
+    # Rule B — it's PM time and the AM side is already complete.
+    #   -> Continue with the next PM slot.
+    #
+    # Rule C — it's PM time and AM was only started (am_in exists, am_out missing).
+    #   -> Finish the morning first so a late-morning tap closes am_out.
+    #
+    # Rule D — it's AM time.
+    #   -> Fill AM slots in order; once AM is complete, move to PM slots.
 
-    # ---- 4) Cooldown guard -------------------------------------------------
+    period = None
+    scan_type = None
+
+    if is_pm_time and not has_am_in and not has_pm_in:
+        # Rule A: first tap of the day, happening in the afternoon
+        period, scan_type = "pm", "in"
+
+    elif is_pm_time and am_filled and not has_pm_in:
+        # Rule B: AM complete, next PM slot is pm_in
+        period, scan_type = "pm", "in"
+
+    elif is_pm_time and has_pm_in and not has_pm_out:
+        # Rule B: PM in already recorded, close it with pm_out
+        period, scan_type = "pm", "out"
+
+    elif is_pm_time and has_am_in and not has_am_out:
+        # Rule C: it's PM time but AM was only started, finish AM first
+        period, scan_type = "am", "out"
+
+    elif not is_pm_time and not has_am_in:
+        # Rule D: AM time, start of day
+        period, scan_type = "am", "in"
+
+    elif not is_pm_time and has_am_in and not has_am_out:
+        # Rule D: AM time, close the morning
+        period, scan_type = "am", "out"
+
+    elif am_filled and not has_pm_in:
+        # AM is complete, any time -> next is pm_in
+        period, scan_type = "pm", "in"
+
+    elif has_pm_in and not has_pm_out:
+        # PM in already recorded -> close with pm_out
+        period, scan_type = "pm", "out"
+
+    else:
+        print(f"No suitable slot found for {rfid} - skipping")
+        return None
+
+    # ---- 5) Cooldown guard -------------------------------------------------
     # Block if the LAST recorded tap for this RFID was the SAME direction
     # (in / out) and it happened within the cooldown window. This stops an
     # accidental double-tap from burning the next slot.
@@ -2097,20 +2167,27 @@ def determine_scan_type(day_data, scan_time, employee):
         print(f"{scan_type.upper()} cooldown not met for {rfid}")
         return None
 
-    # ---- 5) Return the chosen slot ----------------------------------------
+    # ---- 6) Return the chosen slot ----------------------------------------
+    print(
+        f"Slot chosen for {rfid} at {scan_time.strftime('%H:%M')} "
+        f"(is_pm_time={is_pm_time}, am_filled={am_filled}, pm_filled={pm_filled}) "
+        f"-> {period}_{scan_type}"
+    )
     return (period, scan_type)
 
 # Format a datetime as 24-hour time HH:MM (no seconds) for DTR storage.
-# Both the visible and the hidden 24h fields use this same format, so the
-# AM/PM distinction is unambiguous (e.g. "07:30" vs "13:02").
+#
+# This is the ONLY format written to the DTR now — the visible AM/PM fields
+# and the hidden *_24 fields all carry the same 24-hour string. That means
+# there is no ambiguity between "02:30" (morning) and "14:30" (afternoon):
+# the DTR always stores "14:30" for a 2:30 PM tap.
 def format_dtr_time(scan_time):
     """Return HH:MM in 24-hour format (00:00 – 23:59)."""
     return scan_time.strftime("%H:%M")
 
-# Format a datetime as a 24-hour time string for hidden DTR storage.
-# This is what calculate_hours() consumes so AM/PM is never ambiguous.
-# Same HH:MM format as format_dtr_time() above, just kept as a separate
-# function name for backwards compatibility with older code paths.
+# Kept as a separate function name for backwards compatibility with older
+# code paths that still call format_dtr_time_24h(). It returns the exact
+# same HH:MM 24-hour string as format_dtr_time().
 def format_dtr_time_24h(scan_time):
     """Return HH:MM in 24-hour format (00:00 – 23:59)."""
     return scan_time.strftime("%H:%M")
@@ -5501,57 +5578,79 @@ def faces_scan_log():
 
 @app.route("/api/faces/recent-attendance", methods=["GET"])
 def faces_recent_attendance():
+    """Return ONLY the employees who were recognized through the FACE SCANNER
+    today — not employees whose only attendance came from an RFID tap.
+
+    How we know an employee was recognized by face:
+      • When faces_record() records attendance, it also appends an entry to
+        the in-memory scan_events list with scan_type="face" and the
+        employee's rfid. We use that list as the source of truth here.
+      • We then cross-reference each rfid against today's DTR rows to pull
+        the AM/PM in/out times for the UI.
+    """
     try:
-        recent = []
         today = datetime.now().date().isoformat()
-        # Dedupe by uid so the same employee never appears twice for the
-        # same day in the "Today's Attendance" list, no matter how many
-        # times their face was recognized.
+
+        # ---- Step 1: collect every rfid that was recognized by face today ---
+        face_rfids_today = set()
+        for event in scan_events:
+            if event.get("scanned_on") != today:
+                continue
+            if event.get("scan_type") != "face":
+                continue
+            rfid = str(event.get("rfid", "")).strip().upper()
+            if rfid:
+                face_rfids_today.add(rfid)
+
+        # If no face scans happened at all today, return an empty list so
+        # the UI shows the "No attendance records for today" placeholder.
+        if not face_rfids_today:
+            return jsonify({"status": "success", "count": 0, "attendance": []})
+
+        # ---- Step 2: build the DTR lookup for today ------------------------
+        recent = []
         seen_uids = set()
+
         for record in attendance_records:
+            record_rfid = str(record.get("rfid", "")).strip().upper()
+
+            # Only include records whose rfid actually came from a face scan.
+            if record_rfid not in face_rfids_today:
+                continue
+
             uid = record.get("uid", "")
             if uid in seen_uids:
                 continue
+
             dtr = record.get("dtr", {})
             for date_key, day in dtr.items():
-                if day.get("date") == today:
-                    # Only include rows that actually have at least one
-                    # time recorded today. A freshly-created DTR row for
-                    # an employee who hasn't tapped yet would otherwise
-                    # flood the list with empty entries.
-                    if not (day.get("am_in") or day.get("am_out") or day.get("pm_in") or day.get("pm_out")):
-                        continue
-                    recent.append({
-                        "uid": uid,
-                        "employee": record.get("fullname", ""),
-                        "employeeid": record.get("employeeid", ""),
-                        "date": day.get("date", ""),
-                        "am_in": day.get("am_in", ""),
-                        "am_out": day.get("am_out", ""),
-                        "pm_in": day.get("pm_in", ""),
-                        "pm_out": day.get("pm_out", ""),
-                        "hours": day.get("hours", "0.00"),
-                        "status": day.get("status", ""),
-                    })
-                    seen_uids.add(uid)
-                    break
+                if day.get("date") != today:
+                    continue
+
+                # Only include rows that have at least one time recorded
+                # today. A freshly-created DTR row with no times would
+                # otherwise appear as a phantom "Present" entry.
+                if not (day.get("am_in") or day.get("am_out") or day.get("pm_in") or day.get("pm_out")):
+                    continue
+
+                recent.append({
+                    "uid": uid,
+                    "employee": record.get("fullname", ""),
+                    "employeeid": record.get("employeeid", ""),
+                    "date": day.get("date", ""),
+                    "am_in": day.get("am_in", ""),
+                    "am_out": day.get("am_out", ""),
+                    "pm_in": day.get("pm_in", ""),
+                    "pm_out": day.get("pm_out", ""),
+                    "hours": day.get("hours", "0.00"),
+                    "status": day.get("status", ""),
+                })
+                seen_uids.add(uid)
+                break
+
         return jsonify({"status": "success", "count": len(recent), "attendance": recent})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e), "attendance": []}), 200
-
-
-@app.route("/api/faces/dashboard-stats", methods=["GET"])
-def faces_dashboard_stats():
-    try:
-        # get_dashboard_statistics() already includes "profile_images" now —
-        # counted directly from files on disk in storage/profiles/. It also
-        # returns the SEPARATE rfid_scans_today and face_scans_today counters.
-        stats = get_dashboard_statistics()
-        stats["face_scanner_active"] = True
-        return jsonify({"status": "success", "stats": stats})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 200
-
 
 ## Authentication Routes ------------------------------------
 # FIXED: Authenticate all roles and create a three-hour session.
