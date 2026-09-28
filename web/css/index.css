@@ -175,5 +175,59 @@ h1 { max-width: 600px; margin: 0; font: 700 72px/.99 var(--display); letter-spac
   .strip { grid-template-columns: 1fr; padding: 0 20px; }
   .strip-item { padding: 18px 0; border-right: 0; border-bottom: 1px solid var(--line); }
   .section { padding: 75px 20px; }
-  .site-footer { margin: 0 20px; padding-right: 0; padding-left: 0; gap: 12px; flex-direction: column; }
+  .site-footer {
+  margin: 0 20px;
+  padding-right: 0;
+  padding-left: 0;
+  gap: 12px;
+  flex-direction: column;
+}
+
+/* Download Section Styling */
+.download-section {
+  background: var(--paper);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  text-align: center;
+  padding: 60px 5vw;
+  margin: 40px auto;
+  max-width: 800px;
+  box-shadow: 0 4px 12px rgba(128,0,32,.1);
+}
+
+.download-section .section-heading {
+  margin: auto;
+}
+
+.download-section p {
+  max-width: 510px;
+  margin: 17px auto 25px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.download-section .section-heading {
+  margin: auto;
+}
+
+.download-section p {
+  max-width: 510px;
+  margin: 17px auto 25px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.download-section .section-note {
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.download-section .section-note i {
+  color: var(--primary);
+}
 }

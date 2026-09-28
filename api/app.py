@@ -5559,6 +5559,37 @@ def faces_record():
         }), 500
 
 
+@app.route("/api/faces/dashboard-stats", methods=["GET"])
+def faces_dashboard_stats():
+    """Return dashboard statistics for the face scanner interface.
+    This is a public endpoint that doesn't require authentication,
+    as it's used by the standalone face scanner hosted on Vercel.
+    """
+    try:
+        stats = get_dashboard_statistics()
+        return jsonify({
+            "status": "success",
+            "stats": {
+                "profile_images": stats.get("profile_images", 0),
+                "present_today": stats.get("present_today", 0),
+                "total_employees": stats.get("total_employees", 0),
+                "attendance_rate": stats.get("attendance_rate", "0%")
+            }
+        }), 200
+    except Exception as e:
+        print(f"Error in faces_dashboard_stats: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to load dashboard statistics",
+            "stats": {
+                "profile_images": 0,
+                "present_today": 0,
+                "total_employees": 0,
+                "attendance_rate": "0%"
+            }
+        }), 500
+
+
 @app.route("/api/faces/scan-log", methods=["GET"])
 def faces_scan_log():
     limit = request.args.get("limit", default=50, type=int)
