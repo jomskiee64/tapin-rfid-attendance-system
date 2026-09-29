@@ -136,7 +136,7 @@ let lastBox = null;
 let lastBoxColor = "#22c55e";
 let lastBoxLabel = "";
 let missedFrames = 0;
-const BOX_PERSIST_FRAMES = 5; // keep the box for ~5 scans after losing the face
+const BOX_PERSIST_FRAMES = 20; // keep the box for ~20 scans after losing the face
 
 // Server's minimum confidence (fetched from /api/faces/status on boot).
 // Purely informational — used to log a warning if the client threshold

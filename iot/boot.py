@@ -106,40 +106,89 @@ def reset_logs():
     except:
         pass
 
-def start_wifi():
-    max_retries = 3
+def _try_wifi(ssid, password, label, max_retries=3):
+    """Try to connect to a single WiFi network up to `max_retries` times.
+
+    Returns the WLAN object on success, or None on total failure.
+    The `label` is only used in log messages (e.g. "Primary" or "Backup")
+    so the serial monitor shows which network is being attempted.
+
+    We explicitly disconnect before every retry because the ESP32's WiFi
+    driver can get stuck in a half-connected state after a failed attempt,
+    where connect() silently does nothing. Without the disconnect, retries
+    2 and 3 often never actually try to reconnect.
+    """
     retry_count = 0
     while retry_count < max_retries:
         try:
-            tprint(PRINTSTATUS.INFO, f"Connecting to WiFi... (Attempt {retry_count + 1}/{max_retries})")
+            tprint(PRINTSTATUS.INFO,
+                   f"Connecting to {label} WiFi '{ssid}'... (Attempt {retry_count + 1}/{max_retries})")
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
-            wlan.connect(SSID, PASSWORD)
-            timeout = 30
+
+            # Disconnect from any previous attempt before trying again.
+            # Wrapped in try/except because disconnect() can raise if the
+            # interface was never connected in the first place.
+            try:
+                wlan.disconnect()
+            except Exception:
+                pass
+            time.sleep(1)
+
+            wlan.connect(ssid, password)
+            timeout = 15
             connected = False
             for i in range(timeout):
                 if wlan.isconnected():
                     connected = True
                     break
                 time.sleep(1)
+
             if connected:
-                tprint(PRINTSTATUS.SUCCESS, f"Connected to WiFi: {wlan.ifconfig()}")
-                return True
-            else:
-                tprint(PRINTSTATUS.INFO, "WiFi connection timeout")
-                retry_count += 1
-                if retry_count < max_retries:
-                    tprint(PRINTSTATUS.INFO, "Retrying in 5 seconds...")
-                    time.sleep(5)
+                tprint(PRINTSTATUS.SUCCESS,
+                       f"Connected to {label} WiFi: {wlan.ifconfig()}")
+                return wlan
+
+            tprint(PRINTSTATUS.INFO, f"{label} WiFi connection timeout")
+            retry_count += 1
+            if retry_count < max_retries:
+                tprint(PRINTSTATUS.INFO, "Retrying in 5 seconds...")
+                time.sleep(5)
+
         except Exception as e:
-            error_msg = f"WiFi error: {e}"
+            error_msg = f"{label} WiFi error: {e}"
             tprint(PRINTSTATUS.ERROR, error_msg)
             eprint(PRINTSTATUS.ERROR, error_msg)
             retry_count += 1
             if retry_count < max_retries:
                 tprint(PRINTSTATUS.INFO, "Retrying in 5 seconds...")
                 time.sleep(5)
-    error_msg = "WiFi connection failed after 3 attempts"
+
+    return None
+
+
+def start_wifi():
+    """Connect to the primary WiFi. If all 3 attempts fail, fall back to
+    the backup WiFi and try 3 more times. If BOTH fail, reset the device.
+
+    This keeps the scanner online even when the main router is down,
+    rebooting, or has changed its SSID/password — the device will
+    automatically switch to the backup network without human intervention.
+    """
+    # ---- 1) Try the primary network ----------------------------------------
+    wlan = _try_wifi(SSID, PASSWORD, "Primary", max_retries=3)
+    if wlan is not None:
+        return True
+
+    tprint(PRINTSTATUS.WARN, "Primary WiFi failed after 3 attempts — switching to backup")
+
+    # ---- 2) Fall back to the backup network --------------------------------
+    wlan = _try_wifi(BACKUP_SSID, BACKUP_PASSWORD, "Backup", max_retries=3)
+    if wlan is not None:
+        return True
+
+    # ---- 3) Both networks failed — reboot and try again ---------------------
+    error_msg = "Both primary and backup WiFi failed after 3 attempts each"
     tprint(PRINTSTATUS.ERROR, error_msg)
     eprint(PRINTSTATUS.ERROR, error_msg)
     error_msg = "Resetting device..."
@@ -196,6 +245,22 @@ def fech_version_info():
         return None, None
 
 def check_for_updates():
+    """Check the remote version file and, if a newer patch is available,
+    download the three firmware files that make up the runtime:
+
+        • configs/network_config.py  (WiFi credentials)
+        • driver.py                  (hardware drivers)
+        • main.py                    (main firmware loop)
+
+    The order matters: we download network_config.py FIRST so that if
+    the WiFi credentials changed upstream, they are already in place
+    before driver.py and main.py are written. If any download fails, we
+    abort the update and return False so the caller can keep running the
+    current firmware instead of booting a half-updated device.
+
+    After all three files are updated, the device resets so the new code
+    is loaded fresh from flash.
+    """
     tprint(PRINTSTATUS.INFO, "Checking for updates...")
     try:
         old_status, old_version = fech_old_version_info()
@@ -212,6 +277,19 @@ def check_for_updates():
             with open(VERSION_FILE, "w") as f:
                 f.write(f"{status} - {version}")
 
+            # ---- 1) network_config.py -------------------------------------
+            # Pulled first so any credential change is applied before the
+            # other files are written. If this fails we abort — a half-
+            # updated device with a new main.py but an old WiFi config
+            # would be worse than staying on the current version.
+            tprint(PRINTSTATUS.INFO, "Downloading configs/network_config.py...")
+            if download_file(WIFI_URL, "configs/network_config.py"):
+                tprint(PRINTSTATUS.SUCCESS, "network_config.py updated")
+            else:
+                tprint(PRINTSTATUS.ERROR, "Failed to download network_config.py")
+                return False
+
+            # ---- 2) driver.py ---------------------------------------------
             tprint(PRINTSTATUS.INFO, "Downloading driver.py...")
             if download_file(DRIVER_URL, "driver.py"):
                 tprint(PRINTSTATUS.SUCCESS, "driver.py updated")
@@ -219,6 +297,7 @@ def check_for_updates():
                 tprint(PRINTSTATUS.ERROR, "Failed to download driver.py")
                 return False
 
+            # ---- 3) main.py -----------------------------------------------
             tprint(PRINTSTATUS.INFO, "Downloading main.py...")
             if download_file(MAIN_URL, "main.py"):
                 tprint(PRINTSTATUS.SUCCESS, "All files updated")
