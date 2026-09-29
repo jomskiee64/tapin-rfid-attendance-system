@@ -19,15 +19,38 @@ console.log("[faces.js] API_ORIGIN =", API_ORIGIN);
 console.log("[faces.js] API_BASE =", API_BASE);
 
 const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
-const MATCH_THRESHOLD = 0.50; // Lower = stricter
+
+// Distance threshold for face matching. Lower = stricter.
+//   0.50  → ~50% confidence (old default, loose)
+//   0.45  → ~55% confidence
+//   0.40  → ~60% confidence  ← this is what we want now
+//
+// The value below is tuned to ~60% confidence so a face match is
+// accepted a bit more easily without becoming unreliable.
+const MATCH_THRESHOLD = 0.40;
+
+// Detector input size. Lower = faster but less accurate.
+//   416 = default (slow, accurate)
+//   320 = balanced
+//   224 = fast (what we use now, still plenty accurate for a webcam)
+const DETECTOR_INPUT_SIZE = 224;
+
+// Minimum detector confidence to consider a box a real face.
+// Lowered slightly so partial faces still register, but not so low
+// that random shapes get detected.
+const DETECTOR_SCORE_THRESHOLD = 0.45;
+
+// How often the recognition loop runs. 250 ms = 4 scans/second.
+// This is fast enough to feel instant for attendance, but slow enough
+// that the CPU is not pegged at 100% (which was causing the flicker).
+const SCAN_INTERVAL_MS = 250;
 
 // Per-person cooldown between recorded attendance events. 3 minutes = 180000 ms.
-// The server also has its own cooldown inside the DTR slot machine, but this
-// client-side timer prevents the browser from even SENDING duplicate requests
-// while the same person stays in front of the camera.
+// The cooldown ONLY starts AFTER a successful server record,
+// never on a low-confidence or rejected scan.
 //
 // Behaviour:
-//   1. First time a face is matched  → send to API, mark as scanned NOW.
+//   1. First time a face is matched and ACCEPTED → cooldown starts NOW.
 //   2. Every subsequent frame within 3 minutes → skip entirely.
 //   3. After 3 minutes have passed, if the face is seen again → send a NEW
 //      scan to the API with a fresh timestamp.
@@ -36,12 +59,9 @@ const ATTENDANCE_COOLDOWN = 180000; // 3 minutes between scans per person
 const STATS_REFRESH_MS = 10000; // Refresh "Present Today" + stats every 10s
 
 // --- Single-face-at-a-time setting ---------------------------------------
-// When true, only the FIRST detection in the current frame is considered
-// for attendance. This prevents the scanner from firing multiple simultaneous
-// API calls when several people are visible at once.
-//
-// All detected faces are still drawn on the canvas with their confidence
-// labels — we just don't try to record more than one per frame.
+// The scanner now uses detectSingleFace(), which guarantees only ONE
+// face is considered per frame. This constant is kept for clarity and
+// to keep the recording path explicit.
 const SINGLE_FACE_MODE = true;
 
 const video = document.getElementById("video");
@@ -62,6 +82,7 @@ let lastSent = new Map();
 let scanCount = 0;
 let todayAttendance = [];
 let statsRefreshTimer = null;
+let scanLoopTimer = null;
 
 // Tracks the last UID/RFID we recorded, so we can keep the message line
 // showing "Waiting for next scan" instead of spamming the cooldown count.
@@ -187,7 +208,10 @@ async function loadTemplates() {
         const img = await faceapi.fetchImage(imageUrl);
         const detection = await faceapi.detectSingleFace(
             img,
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+            new faceapi.TinyFaceDetectorOptions({
+              inputSize: 320,
+              scoreThreshold: DETECTOR_SCORE_THRESHOLD
+            })
           )
           .withFaceLandmarks(true) // true = use the tiny landmark net (matches boot())
           .withFaceDescriptor();
@@ -345,7 +369,7 @@ async function startCamera() {
     addLogEntry("Scanner", 0, "info", "Camera started — scanning for faces");
     clearLogPlaceholder();
 
-    recognitionLoop();
+    scheduleScanLoop(0);
   } catch (e) {
     console.error("Camera error:", e);
     alert("Camera access failed. Allow camera permission and use HTTPS or localhost.");
@@ -354,6 +378,10 @@ async function startCamera() {
 
 function stopCamera() {
   running = false;
+  if (scanLoopTimer) {
+    clearTimeout(scanLoopTimer);
+    scanLoopTimer = null;
+  }
   if (stream) {
     stream.getTracks().forEach(t => t.stop());
     stream = null;
@@ -368,6 +396,18 @@ function stopCamera() {
 
   // Log the stop so the recognition log reflects the current state.
   addLogEntry("Scanner", 0, "info", "Camera stopped");
+}
+
+// Fixed-interval scan scheduler. Replaces requestAnimationFrame so the
+// scanner runs at ~4 fps for face detection instead of 60 fps — that's
+// what was causing the visual flicker and CPU pegging.
+function scheduleScanLoop(delay = SCAN_INTERVAL_MS) {
+  if (!running) return;
+  if (scanLoopTimer) clearTimeout(scanLoopTimer);
+  scanLoopTimer = setTimeout(async () => {
+    await recognitionLoop();
+    scheduleScanLoop(SCAN_INTERVAL_MS);
+  }, delay);
 }
 
 // ========================================================================
@@ -451,8 +491,11 @@ function formatCooldownMmSs(seconds) {
 //   2. If we already scanned this person within the last 3 minutes → skip
 //      silently (messageEl shows the countdown so the operator knows why).
 //   3. Otherwise: capture the CURRENT local timestamp as `scanned_at`,
-//      set the cooldown marker BEFORE awaiting the fetch (so a slow
-//      response can't let a second request slip through), then POST.
+//      then POST to the server.
+//
+// IMPORTANT: The cooldown marker is set ONLY after a successful server
+// response. Low-confidence, rejected, or failed requests do NOT lock the
+// person out — they can retry immediately.
 async function recordAttendance(match) {
   const uid = String(match.uid || match.employee?.uid || "");
   const rfid = String(match.rfid || match.employee?.rfid || "");
@@ -483,11 +526,6 @@ async function recordAttendance(match) {
   // timezone offset.
   const scannedAt = formatLocalTimestamp(new Date());
 
-  // ⚠️ CRITICAL: set the cooldown timestamp BEFORE the async fetch() call
-  // so a slow server response can't let a second identical request
-  // slip through while the first one is still in flight.
-  lastSent.set(key, Date.now());
-
   try {
     const res = await fetch(`${API_BASE}/record`, {
       method: "POST",
@@ -511,10 +549,14 @@ async function recordAttendance(match) {
       lastRecordedKey = key;
       lastRecordedName = empName;
 
+      // ✅ Cooldown starts ONLY here, after a real successful record.
+      lastSent.set(key, Date.now());
+
       addLogEntry(empName, data.confidence || match.confidence, "success", data.attendance_status || "recorded");
 
-      await loadAttendance();
-      await loadStats();
+      // Refresh the two panels that depend on attendance.
+      loadAttendance().catch(() => {});
+      loadStats().catch(() => {});
 
       // Show a clear confirmation and immediately tell the operator the
       // scanner is now idle and waiting for the next face.
@@ -524,137 +566,105 @@ async function recordAttendance(match) {
     } else if (res.status === 403) {
       addLogEntry(match.name, match.confidence, "warning", "low confidence");
       messageEl.textContent = "⚠️ Confidence too low for attendance. Waiting for next face…";
-      // Do NOT keep the cooldown on a rejection — the person can try again
-      // immediately by facing the camera more clearly.
-      lastSent.delete(key);
+      // No cooldown — the person can retry immediately by facing the
+      // camera more clearly.
 
     } else {
       addLogEntry(match.name, match.confidence, "error", "rejected");
       messageEl.textContent = "❌ Attendance not recorded. Waiting for next face…";
-      // Same reasoning as 403: don't punish the next attempt with the
-      // cooldown if the server rejected this one.
-      lastSent.delete(key);
+      // No cooldown — don't punish the next attempt.
     }
   } catch (e) {
     console.error("Attendance error:", e);
     addLogEntry(match.name, match.confidence, "error", "API error");
     messageEl.textContent = "⚠️ API connection failed. Waiting for next face…";
     // Network error → allow a retry immediately.
-    lastSent.delete(key);
   }
 }
 
 // ========================================================================
 // RECOGNITION LOOP
 // ========================================================================
+//
+// Now uses detectSingleFace — only ONE face is ever considered per scan.
+// This is what stops the multi-person race condition and the flicker.
+//
+// Runs on a fixed 250 ms timer (via scheduleScanLoop) instead of
+// requestAnimationFrame, so the detector is not called 60× per second.
 
 async function recognitionLoop() {
   if (!running || busy) return;
   busy = true;
 
   try {
-    const detections = await faceapi.detectAllFaces(
+    const detection = await faceapi.detectSingleFace(
       video,
-      new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+      new faceapi.TinyFaceDetectorOptions({
+        inputSize: DETECTOR_INPUT_SIZE,
+        scoreThreshold: DETECTOR_SCORE_THRESHOLD
+      })
     ).withFaceLandmarks(true).withFaceDescriptors();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    faceCountEl.textContent = `Faces: ${detections.length}`;
 
-    const resized = faceapi.resizeResults(detections, {
-      width: canvas.width,
-      height: canvas.height
-    });
+    if (!detection) {
+      faceCountEl.textContent = "Faces: 0";
+      // Idle state — do not touch the message line if a person was just recorded.
+      return;
+    }
 
-    // Tracks whether we've already sent ONE attendance call this frame.
-    // SINGLE_FACE_MODE ensures we never fire multiple simultaneous POSTs
-    // when several people are visible at the same time.
-    let recordedThisFrame = false;
+    faceCountEl.textContent = "Faces: 1";
 
-    // Track whether at least one face was matched this frame so we know
-    // whether we're idle (waiting for next face) or actively busy with
-    // the current person.
-    let anyMatchThisFrame = false;
-    let allMatchedAreOnCooldown = true;
+    const box = detection.detection.box;
+    const match = identify(detection.descriptor);
 
-    for (let i = 0; i < resized.length; i++) {
-      const box = resized[i].detection.box;
-      const match = identify(detections[i].descriptor);
+    let label = "Unknown";
+    let color = "#ef4444";
 
-      let label = "Unknown";
-      let color = "#ef4444";
+    if (match) {
+      const key = String(match.uid || match.employee?.uid || match.rfid || "");
+      const onCooldown = key && isWithinCooldown(key);
 
-      if (match) {
-        anyMatchThisFrame = true;
-        label = `${match.name} ${match.confidence.toFixed(1)}%`;
-
+      if (onCooldown) {
         // ---- COOLDOWN-AWARE COLOUR ------------------------------------
         // A face that is still inside its 3-minute cooldown is drawn in
         // amber with a "cooldown" hint so the operator immediately sees
         // that this person is being intentionally skipped (so the scanner
         // can move on to the next face).
-        const key = String(match.uid || match.employee?.uid || match.rfid || "");
-        const onCooldown = key && isWithinCooldown(key);
-        if (onCooldown) {
-          const remaining = cooldownRemainingSeconds(key);
-          label = `${match.name} ⏳ ${formatCooldownMmSs(remaining)}`;
-          color = "#f59e0b"; // amber
-        } else {
-          allMatchedAreOnCooldown = false;
-          color = "#22c55e"; // green
-        }
+        const remaining = cooldownRemainingSeconds(key);
+        label = `${match.name} ⏳ ${formatCooldownMmSs(remaining)}`;
+        color = "#f59e0b"; // amber
+      } else {
+        label = `${match.name} ${match.confidence.toFixed(1)}%`;
+        color = "#22c55e"; // green
 
-        // ---- SINGLE-FACE GATE --------------------------------------------
-        // Only the FIRST confidently matched face in this frame is eligible
-        // for attendance recording. Additional faces are still drawn below
-        // (so the operator sees them), but they are not recorded.
-        if (!recordedThisFrame && SINGLE_FACE_MODE) {
-          // We always run recordAttendance() for the first match — the
-          // cooldown check INSIDE it decides whether an actual POST fires.
-          // Awaiting here makes sure only one POST is in flight at a time,
-          // which keeps the DTR slot machine from being hit twice at once.
-          await recordAttendance(match);
-          recordedThisFrame = true;
-        }
+        // Record — awaited so only one request is in flight at a time.
+        // The cooldown is set INSIDE recordAttendance() only on success.
+        await recordAttendance(match);
       }
-
-      // Manual flip: canvas has NO CSS mirror, video DOES.
-      const flippedX = canvas.width - box.x - box.width;
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(flippedX, box.y, box.width, box.height);
-
-      ctx.fillStyle = color;
-      const labelWidth = Math.min(canvas.width - flippedX, 300);
-      const labelY = Math.max(0, box.y - 28);
-      ctx.fillRect(flippedX, labelY, labelWidth, 28);
-
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 14px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(label.trim(), flippedX + 6, Math.max(18, box.y - 9));
     }
 
-    // ---- IDLE MESSAGE ---------------------------------------------------
-    // If we saw faces this frame but all of them are still in cooldown,
-    // keep the message line in a calm "waiting" state so the operator
-    // knows the scanner is ready for the NEXT person.
-    //
-    // If we saw NO faces at all, we fall back to the standard scanning
-    // prompt (it will not overwrite the last "recorded" message while a
-    // person is still in front of the camera, because we only touch the
-    // message in the "no faces" case below.)
-    if (anyMatchThisFrame && allMatchedAreOnCooldown && !recordedThisFrame) {
-      // Already inside recordAttendance()'s cooldown message OR nothing
-      // fired — leave the message as-is; do not spam.
-    }
+    // Manual flip: canvas has NO CSS mirror, video DOES.
+    const flippedX = canvas.width - box.x - box.width;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(flippedX, box.y, box.width, box.height);
+
+    ctx.fillStyle = color;
+    const labelWidth = Math.min(canvas.width - flippedX, 300);
+    const labelY = Math.max(0, box.y - 28);
+    ctx.fillRect(flippedX, labelY, labelWidth, 28);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(label.trim(), flippedX + 6, Math.max(18, box.y - 9));
 
   } catch (e) {
     console.error("Recognition loop error:", e);
   } finally {
     busy = false;
-    if (running) requestAnimationFrame(recognitionLoop);
   }
 }
 
@@ -767,4 +777,4 @@ window.addEventListener("beforeunload", stopCamera);
 // START
 // ========================================================================
 
-boot(); 
+boot();
