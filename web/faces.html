@@ -42,21 +42,19 @@
     <div class="card-body">
 
       <section class="camera-section">
+        <!-- Toolbar no longer has Start/Stop buttons — the camera
+             auto-starts as soon as the AI models finish loading. -->
         <div class="toolbar">
           <div class="toolbar-text">
             <h2>Scan Face</h2>
-            <small id="message">Load the models, then start the scanner.</small>
-          </div>
-          <div class="toolbar-actions">
-            <button id="start" class="primary">▶ Start</button>
-            <button id="stop" class="danger" disabled>⏹ Stop</button>
+            <small id="message">Starting camera…</small>
           </div>
         </div>
 
         <div class="camera-box">
           <video id="video" autoplay muted playsinline></video>
           <canvas id="canvas"></canvas>
-          <div id="cameraHint">📷 Camera is off</div>
+          <div id="cameraHint">📷 Starting camera…</div>
         </div>
       </section>
 
