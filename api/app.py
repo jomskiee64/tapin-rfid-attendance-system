@@ -5333,7 +5333,7 @@ def serve_work_status_attachment(filename):
 
 FACE_LOG_DIR = os.path.join(BASE_DIR, "storage", "logs")
 FACE_SCAN_LOG_FILE = os.path.join(FACE_LOG_DIR, "face_scans.json")
-FACE_MIN_CONFIDENCE = float(os.environ.get("FACE_MIN_CONFIDENCE", "70.0"))
+FACE_MIN_CONFIDENCE = float(os.environ.get("FACE_MIN_CONFIDENCE", "60.0"))
 FACE_ATTENDANCE_COOLDOWN = int(os.environ.get("FACE_ATTENDANCE_COOLDOWN", "10"))
 
 

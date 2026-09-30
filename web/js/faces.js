@@ -83,10 +83,10 @@ const REJECT_BACKOFF_MS = 3000;
 //
 // Behaviour:
 //   1. First successful record → cooldown starts NOW.
-//   2. Every subsequent frame within 3 minutes → skip entirely.
+//   2. Every subsequent frame within 10 minutes → skip entirely.
 //   3. After 3 minutes have passed, if the face is seen again → send a NEW
 //      scan to the API with a fresh timestamp.
-const ATTENDANCE_COOLDOWN = 180000; // 3 minutes between scans per person
+const ATTENDANCE_COOLDOWN = 600000; // 10 minutes between scans per person
 
 const STATS_REFRESH_MS = 10000; // Refresh "Present Today" + stats every 10s
 

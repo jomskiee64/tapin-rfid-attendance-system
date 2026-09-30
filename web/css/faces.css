@@ -344,14 +344,25 @@ button:disabled {
     text-transform: uppercase;
 }
 
-/* Recognition log */
+/* Recognition log — shows ~3 entries, the rest scrolls */
 .log-entries {
-    max-height: 280px;              /* ← was 130px — double the height */
+    max-height: 200px;              /* 3 entries × ~64px + gaps */
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    padding-right: 4px;             /* room for the scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
 }
+
+.log-entries::-webkit-scrollbar { width: 6px; }
+.log-entries::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+.log-entries::-webkit-scrollbar-track { background: transparent; }
 
 .log-entry {
     display: grid;
