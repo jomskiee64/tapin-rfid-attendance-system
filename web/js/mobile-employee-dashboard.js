@@ -51,6 +51,27 @@ function setText(id, v) {
   if (el) el.textContent = v;
 }
 
+/* ---------- PASSWORD TOGGLE ---------- */
+
+// Toggle a password input between hidden and visible, and swap the eye icon.
+// Same behavior as the login page password toggle.
+function togglePasswordVisibility(inputId, buttonEl) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const isPassword = input.type === 'password';
+  input.type = isPassword ? 'text' : 'password';
+
+  const icon = buttonEl ? buttonEl.querySelector('i') : null;
+  if (icon) {
+    icon.className = isPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+  }
+  if (buttonEl) {
+    buttonEl.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+    buttonEl.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+  }
+}
+
 /* ---------- Clock ---------- */
 
 function updateClock() {
@@ -170,6 +191,7 @@ function paintProfile() {
 
   setText('mobileProfileName', name);
   setText('mobileProfileRole', (currentUser.role || 'employee').toUpperCase());
+  setText('profileRfid', currentUser.rfid || '--');          // <-- ADD THIS LINE
   setText('profileEmpId', currentUser.employeeid || currentUser.uid || '--');
   setText('profileEmail', currentUser.email || '--');
   setText('profilePhone', currentUser.cpnumber || '--');
@@ -519,21 +541,24 @@ function populateWorkStatusTypeDropdown() {
 
   // Define standard work status types (must match backend WORK_STATUS_TYPES)
   const workStatusTypes = [
+    { value: 'vacation_leave', label: 'Vacation Leave (Sec. 51, Rule XVI)' },
+    { value: 'mandatory_forced_leave', label: 'Mandatory/Forced Leave (Sec. 25, Rule XVI)' },
+    { value: 'sick_leave', label: 'Sick Leave (Sec. 43, Rule XVI)' },
+    { value: 'maternity_leave', label: 'Maternity Leave (R.A. No. 11210)' },
+    { value: 'paternity_leave', label: 'Paternity Leave (R.A. No. 8187)' },
+    { value: 'special_privilege_leave', label: 'Special Privilege Leave (Sec. 21, Rule XVI)' },
+    { value: 'solo_parent_leave', label: 'Solo Parent Leave (RA No. 8972)' },
+    { value: 'study_leave', label: 'Study Leave (Sec. 68, Rule XVI)' },
+    { value: '10_day_vawc_leave', label: '10-Day VAWC Leave (RA No. 9262)' },
+    { value: 'rehabilitation_privilege', label: 'Rehabilitation Privilege (Sec. 55, Rule XVI)' },
+    { value: 'special_leave_benefits_women', label: 'Special Leave Benefits for Women' },
+    { value: 'special_emergency_calamity_leave', label: 'Special Emergency (Calamity) Leave' },
+    { value: 'adoption_leave', label: 'Adoption Leave (R.A. No. 8552)' },
     { value: 'on_leave', label: 'On Leave' },
     { value: 'official_travel', label: 'Official Travel' },
     { value: 'official_business', label: 'Official Business' },
     { value: 'work_from_home', label: 'Work From Home (WFH)' },
-    { value: 'field_work', label: 'Field Work' },
-    { value: 'training', label: 'Training' },
-    { value: 'conference_seminar', label: 'Conference / Seminar' },
-    { value: 'work_assignment', label: 'Work Assignment' },
-    { value: 'offsite_duty', label: 'Offsite Duty' },
-    { value: 'client_visit', label: 'Client Visit' },
-    { value: 'meeting_outside_office', label: 'Meeting Outside Office' },
-    { value: 'special_assignment', label: 'Special Assignment' },
-    { value: 'suspended_work', label: 'Suspended Work' },
-    { value: 'holiday_non_working', label: 'Holiday / Non-Working Day' },
-    { value: 'rest_day', label: 'Rest Day' }
+    { value: 'others', label: 'Others:' }
   ];
 
   // Add options to dropdown
@@ -716,6 +741,7 @@ async function changePassword() {
   const cf = document.getElementById('confirmPassword').value;
 
   if (!cur || !np || !cf) { showMsg('passwordMessage', 'Fill in all fields.', 'error'); return; }
+  if (np.length < 8) { showMsg('passwordMessage', 'New password must be at least 8 characters.', 'error'); return; }
   if (np !== cf) { showMsg('passwordMessage', 'Passwords do not match.', 'error'); return; }
 
   showMsg('passwordMessage', 'Updating…', 'info');

@@ -273,7 +273,98 @@ EMPLOYEE_SETTINGS_STORAGE = os.path.join(BASE_DIR, "storage", "settings")
 # whether it requires a specific time range or covers the whole day.
 
 WORK_STATUS_TYPES = {
-    "on_leave": {
+    "vacation_leave": {
+        "code": "vacation_leave",
+        "label": "Vacation Leave (Sec. 51, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Vacation Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "mandatory_forced_leave": {
+        "code": "mandatory_forced_leave",
+        "label": "Mandatory/Forced Leave (Sec. 25, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Mandatory/Forced Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "sick_leave": {
+        "code": "sick_leave",
+        "label": "Sick Leave (Sec. 43, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Sick Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "maternity_leave": {
+        "code": "maternity_leave",
+        "label": "Maternity Leave (R.A. No. 11210 / IRR issued by CSC, DOLE and SSS)",
+        "description": "Maternity Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "paternity_leave": {
+        "code": "paternity_leave",
+        "label": "Paternity Leave (R.A. No. 8187 / CSC MC No. 71, s. 1998, as amended)",
+        "description": "Paternity Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "special_privilege_leave": {
+        "code": "special_privilege_leave",
+        "label": "Special Privilege Leave (Sec. 21, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Special Privilege Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "solo_parent_leave": {
+        "code": "solo_parent_leave",
+        "label": "Solo Parent Leave (RA No. 8972 / CSC MC No. 8, s. 2004)",
+        "description": "Solo Parent Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "study_leave": {
+        "code": "study_leave",
+        "label": "Study Leave (Sec. 68, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Study Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "10_day_vawc_leave": {
+        "code": "10_day_vawc_leave",
+        "label": "10-Day VAWC Leave (RA No. 9262 / CSC MC No. 15, s. 2005)",
+        "description": "10-Day VAWC Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "rehabilitation_privilege": {
+        "code": "rehabilitation_privilege",
+        "label": "Rehabilitation Privilege (Sec. 55, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Rehabilitation Privilege",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "special_leave_benefits_women": {
+        "code": "special_leave_benefits_women",
+        "label": "Special Leave Benefits for Women (Sec. 55, Rule XVI, Omnibus Rules Implementing E.O. No. 292)",
+        "description": "Special Leave Benefits for Women",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "special_emergency_calamity_leave": {
+        "code": "special_emergency_calamity_leave",
+        "label": "Special Emergency (Calamity) Leave (CSC MC No. 2, s. 2012, as amended)",
+        "description": "Special Emergency (Calamity) Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+    "adoption_leave": {
+        "code": "adoption_leave",
+        "label": "Adoption Leave (R.A. No. 8552)",
+        "description": "Adoption Leave",
+        "requires_time": False,
+        "default_time_mode": "whole_day"
+    },
+        "on_leave": {
         "code": "on_leave",
         "label": "On Leave",
         "description": "Approved vacation, sick, emergency, etc.",
@@ -301,80 +392,10 @@ WORK_STATUS_TYPES = {
         "requires_time": True,
         "default_time_mode": "whole_day"
     },
-    "field_work": {
-        "code": "field_work",
-        "label": "Field Work",
-        "description": "Assigned to work at another location",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "training": {
-        "code": "training",
-        "label": "Training",
-        "description": "Attending an official training/seminar",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "conference_seminar": {
-        "code": "conference_seminar",
-        "label": "Conference / Seminar",
-        "description": "Attending an official event",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "work_assignment": {
-        "code": "work_assignment",
-        "label": "Work Assignment",
-        "description": "Temporarily assigned elsewhere",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "offsite_duty": {
-        "code": "offsite_duty",
-        "label": "Offsite Duty",
-        "description": "Performing work outside the office",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "client_visit": {
-        "code": "client_visit",
-        "label": "Client Visit",
-        "description": "Visiting a client or partner",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "meeting_outside_office": {
-        "code": "meeting_outside_office",
-        "label": "Meeting Outside Office",
-        "description": "Attending an external meeting",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "special_assignment": {
-        "code": "special_assignment",
-        "label": "Special Assignment",
-        "description": "Temporary special work assignment",
-        "requires_time": True,
-        "default_time_mode": "whole_day"
-    },
-    "suspended_work": {
-        "code": "suspended_work",
-        "label": "Suspended Work",
-        "description": "Work suspended due to an official reason",
-        "requires_time": False,
-        "default_time_mode": "whole_day"
-    },
-    "holiday_non_working": {
-        "code": "holiday_non_working",
-        "label": "Holiday / Non-Working Day",
-        "description": "No regular work scheduled",
-        "requires_time": False,
-        "default_time_mode": "whole_day"
-    },
-    "rest_day": {
-        "code": "rest_day",
-        "label": "Rest Day",
-        "description": "Scheduled day off",
+    "others": {
+        "code": "others",
+        "label": "Others:",
+        "description": "Other leave/status not listed above",
         "requires_time": False,
         "default_time_mode": "whole_day"
     }
@@ -5840,6 +5861,141 @@ def logout():
             "message": f"Logout failed: {str(e)}"
         }), 500
 
+# ============================================================================
+# CHANGE PASSWORD ROUTE
+# ============================================================================
+# Called by the "Update Password" button on both the desktop and mobile
+# employee dashboards. Verifies the current password (MD5-hashed to match
+# the stored password_hash), then overwrites password_hash with the MD5
+# hash of the new password.
+#
+# This route was previously missing, which caused the front-end to receive
+# a 404 from Flask's default 404 handler and report "Network error."
+# ============================================================================
+@app.route("/api/change-password", methods=["POST"])
+def change_password():
+    """Change a user's password.
+
+    Body (JSON):
+        {
+            "rfid": "FB822A54",
+            "current_password": "oldpass",
+            "new_password": "newpass123"
+        }
+
+    Steps:
+      1. Look up the employee by RFID in users.json.
+      2. Hash the submitted current_password with MD5 and compare it to
+         the stored password_hash.
+      3. If it matches, hash new_password with MD5 and overwrite
+         password_hash.
+      4. Backup users.json → users.json.backup, then save.
+      5. Refresh the in-memory employee_database so the next login uses
+         the new hash immediately.
+    """
+    try:
+        data = request.get_json() or {}
+        rfid = str(data.get("rfid", "")).strip().upper()
+        current_password = str(data.get("current_password", ""))
+        new_password = str(data.get("new_password", ""))
+
+        # ---- 1) Required-field validation ---------------------------------
+        if not rfid or not current_password or not new_password:
+            return jsonify({
+                "status": "error",
+                "message": "rfid, current_password, and new_password are required"
+            }), 400
+
+        # ---- 2) Minimum length -------------------------------------------
+        if len(new_password) < 8:
+            return jsonify({
+                "status": "error",
+                "message": "New password must be at least 8 characters"
+            }), 400
+
+        # ---- 3) Must differ from the current password --------------------
+        if new_password == current_password:
+            return jsonify({
+                "status": "error",
+                "message": "New password must be different from the current password"
+            }), 400
+
+        # ---- 4) Load users.json ------------------------------------------
+        if not os.path.exists(USER_DATA_FILE):
+            return jsonify({
+                "status": "error",
+                "message": "User database not found"
+            }), 404
+
+        with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+            database = json.load(f)
+
+        current_hash = hashlib.md5(current_password.encode("utf-8")).hexdigest()
+        new_hash = hashlib.md5(new_password.encode("utf-8")).hexdigest()
+
+        # ---- 5) Find the employee across all role buckets ----------------
+        updated = False
+        for category in ["admin", "hr", "employees"]:
+            for emp in database.get(category, []):
+                if str(emp.get("rfid", "")).strip().upper() == rfid:
+                    stored_hash = str(emp.get("password_hash", "")).lower()
+                    if stored_hash != current_hash:
+                        return jsonify({
+                            "status": "error",
+                            "message": "Current password is incorrect"
+                        }), 401
+                    emp["password_hash"] = new_hash
+                    emp["timestamp_modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    updated = True
+                    break
+            if updated:
+                break
+
+        if not updated:
+            return jsonify({
+                "status": "error",
+                "message": "Employee not found"
+            }), 404
+
+        # ---- 6) Backup + save --------------------------------------------
+        import shutil
+        try:
+            shutil.copy2(USER_DATA_FILE, USER_DATA_FILE + ".backup")
+        except Exception as e:
+            print(f"Warning: could not back up users.json: {e}")
+
+        with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(database, f, indent=4)
+            f.write("\n")
+
+        # ---- 7) Refresh the in-memory database ---------------------------
+        # The next login reads password_hash from employee_database, so we
+        # must rebuild it here for the new hash to take effect immediately.
+        global employee_database
+        employee_database = load_employee_database()
+
+        # ---- 8) Log the activity -----------------------------------------
+        add_activity(
+            "password_changed",
+            f"Password changed for RFID {rfid}",
+            {"name": "System", "uid": "system"},
+            "system"
+        )
+
+        return jsonify({
+            "status": "success",
+            "message": "Password updated successfully"
+        }), 200
+
+    except Exception as e:
+        print(f"Change password error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to update password: {str(e)}"
+        }), 500
+
 ## Employee Management Routes ------------------------------------
 # Register a new admin, HR, or employee account.
 @app.route("/api/register-employee", methods=["POST"])
@@ -6588,6 +6744,7 @@ def page_not_found(e):
 @app.route("/api/login", methods=["OPTIONS"])
 @app.route("/api/session", methods=["OPTIONS"])
 @app.route("/api/logout", methods=["OPTIONS"])
+@app.route("/api/change-password", methods=["OPTIONS"])
 @app.route("/api/dashboard-data", methods=["OPTIONS"])
 @app.route("/api/daily-stats", methods=["OPTIONS"])
 @app.route("/api/verify-token", methods=["OPTIONS"])

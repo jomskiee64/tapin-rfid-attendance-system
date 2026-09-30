@@ -40,6 +40,27 @@ function getAuthHeaders() {
     };
 }
 
+/* ============ PASSWORD TOGGLE ============ */
+
+// Toggle a password input between hidden and visible, and swap the eye icon.
+// Same behavior as the login page and employee dashboard password toggle.
+function togglePasswordVisibility(inputId, buttonEl) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+
+    const icon = buttonEl ? buttonEl.querySelector('i') : null;
+    if (icon) {
+        icon.className = isPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+    }
+    if (buttonEl) {
+        buttonEl.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+        buttonEl.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+    }
+}
+
 /* Auth headers for multipart/form-data requests (file uploads).
    We must NOT set Content-Type — the browser sets it with the multipart
    boundary automatically. Only the Authorization token is sent. */
@@ -1595,7 +1616,12 @@ function editEmployee(uid) {
                         </div>
                         <div class="form-group" style="margin-top:12px;">
                             <label>New Password (leave blank to keep current)</label>
-                            <input class="form-control" type="password" id="editPassword" placeholder="Enter new password to change" />
+                            <div class="password-wrap">
+                                <input class="form-control" type="password" id="editPassword" placeholder="Enter new password (min. 8 characters)" minlength="8" />
+                                <button type="button" class="password-toggle" onclick="togglePasswordVisibility('editPassword', this)">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
                         </div>
                         <!-- Image upload field for editing -->
                         <div class="form-group" style="margin-top:12px;">
@@ -1671,7 +1697,15 @@ async function submitEditEmployee(event) {
     formData.append('firstname', document.getElementById('editFirstname').value);
     formData.append('lastname', document.getElementById('editLastname').value);
     formData.append('email', document.getElementById('editEmail').value);
-    formData.append('cpnumber', document.getElementById('editCpnumber').value);
+
+    // Guarantee the CP number always starts with +63 before sending.
+    // The input may have a leading "0" or be missing the prefix entirely.
+    let cpValue = (document.getElementById('editCpnumber').value || '').trim();
+    if (cpValue && !cpValue.startsWith('+63')) {
+        cpValue = '+63' + cpValue.replace(/^\+?6?3?/, '').replace(/^0+/, '');
+    }
+    formData.append('cpnumber', cpValue);
+
     formData.append('address', document.getElementById('editAddress').value);
     formData.append('bdate', document.getElementById('editBdate').value);
     formData.append('department', document.getElementById('editDepartment').value);
@@ -1681,6 +1715,16 @@ async function submitEditEmployee(event) {
 
     const password = document.getElementById('editPassword').value;
     if (password) {
+        // Enforce the same 8-character minimum as the employee self-service
+        // password change. If the admin typed something shorter, show an
+        // error and stop before sending anything to the server.
+        if (password.length < 8) {
+            const msgEl = document.getElementById('editMessage');
+            msgEl.style.display = 'block';
+            msgEl.style.color = '#EF4444';
+            msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> New password must be at least 8 characters.';
+            return;
+        }
         formData.append('password', password);
     }
 

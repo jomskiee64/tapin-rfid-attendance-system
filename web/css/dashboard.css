@@ -3516,3 +3516,53 @@ body.sidebar-collapsed .main {
     font-size: 12px;
   }
 }
+
+/* ============ PASSWORD TOGGLE ============ */
+/* Wrapper so the eye button can be positioned inside the input */
+.password-wrap {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+
+.password-wrap .form-control {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 42px; /* leave room for the eye button */
+}
+
+/* Eye toggle button — pinned to the vertical center of the input's right edge */
+.password-wrap .password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    box-shadow: none;
+    color: var(--text-muted, #94a3b8);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.password-wrap .password-toggle:hover {
+    color: var(--text, #0f172a);
+}
+
+.password-wrap .password-toggle i {
+    pointer-events: none;
+    font-size: inherit;
+    line-height: 1;
+    color: inherit;
+}

@@ -565,3 +565,44 @@ textarea.form-control { resize: vertical; min-height: 70px; font-family: inherit
 .logout-card h3 { font-size: 17px; color: var(--text); }
 .logout-card p { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
 .logout-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+
+/* ============ PASSWORD TOGGLE ============ */
+/* Wrapper so the eye button can be positioned inside the input */
+.password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-wrap .form-control {
+  padding-right: 44px; /* leave room for the eye button */
+  width: 100%;
+}
+
+/* Eye toggle button — matches login.js */
+.password-wrap .password-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.password-wrap .password-toggle:active {
+  color: var(--primary, #800020);
+}
+
+.password-wrap .password-toggle:focus {
+  outline: none;
+}

@@ -977,3 +977,68 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .footer { padding: 16px 18px; }
   .footer-brand { font-size: 12px; }
 }
+
+/* ============ PASSWORD TOGGLE ============ */
+/* Wrapper is a plain block — the input fills it normally and the
+   button floats above it, pinned to the right edge. */
+.password-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* Input fills the wrapper; right padding leaves room for the eye. */
+.password-wrap .form-control {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 42px;
+}
+
+/* Eye button is pinned to the vertical center of the input's right edge. */
+.password-wrap .password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.password-wrap .password-toggle:hover {
+  color: var(--text, #0f172a);
+}
+
+.password-wrap .password-toggle i {
+  pointer-events: none;
+  font-size: inherit;
+  line-height: 1;
+  color: inherit;
+}
+
+/* Change-password feedback message */
+#passwordMessage.msg {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border: 1px solid #D4A0AC;
+}

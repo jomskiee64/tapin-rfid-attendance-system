@@ -357,33 +357,60 @@
               <span>Account Information</span>
             </div>
             <div class="profile-block-body">
+              <div class="emp-info-row"><i class="fa-solid fa-wifi"></i> <span class="emp-info-val" id="profileRfid">--</span></div>
+              <div class="emp-info-row"><i class="fa-solid fa-id-badge"></i> <span class="emp-info-val" id="profileEmpId">--</span></div>
               <div class="emp-info-row"><i class="fa-solid fa-envelope"></i> <span class="emp-info-val" id="profileEmail">--</span></div>
               <div class="emp-info-row"><i class="fa-solid fa-phone"></i> <span class="emp-info-val" id="profilePhone">--</span></div>
               <div class="emp-info-row"><i class="fa-solid fa-building"></i> <span class="emp-info-val" id="profileDept">--</span></div>
-              <div class="emp-info-row"><i class="fa-solid fa-id-badge"></i> <span class="emp-info-val" id="profileEmpId">--</span></div>
-              <div class="emp-info-row"><i class="fa-solid fa-shield-halved"></i> <span class="emp-info-val" id="profileRole">--</span></div>
+              <div class="emp-info-row"><i class="fa-solid fa-briefcase"></i> <span class="emp-info-val" id="profilePosition">--</span></div>
+              <div class="emp-info-row"><i class="fa-solid fa-home"></i> <span class="emp-info-val" id="profileAddress">--</span></div>
             </div>
           </div>
           <div class="profile-block">
-            <div class="profile-block-header">
-              <i class="fa-solid fa-key"></i>
-              <span>Change Password</span>
-            </div>
-            <div class="profile-block-body">
-              <div class="form-group">
-                <label>Current Password</label>
-                <input class="form-control" type="password" id="currentPassword" placeholder="Enter current password" />
-              </div>
-              <div class="form-group">
-                <label>New Password</label>
-                <input class="form-control" type="password" id="newPassword" placeholder="Enter new password" />
-              </div>
-              <div class="form-group" style="margin-bottom:0;">
-                <label>Confirm New Password</label>
-                <input class="form-control" type="password" id="confirmPassword" placeholder="Confirm new password" />
-              </div>
-            </div>
+          <div class="profile-block-header">
+            <i class="fa-solid fa-key"></i>
+            <span>Change Password</span>
           </div>
+          <div class="profile-block-body">
+            <div class="form-group">
+              <label>Current Password</label>
+              <div class="password-wrap" style="position: relative; display: block; width: 100%;">
+                <input class="form-control" type="password" id="currentPassword" placeholder="Enter current password" style="padding-right: 42px; box-sizing: border-box; width: 100%;" />
+                <button type="button" class="password-toggle" onclick="togglePasswordVisibility('currentPassword', this)" style="position: absolute; top: 50%; right: 10px; transform: translateY(-50%); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; padding: 0; margin: 0; cursor: pointer; color: #64748B; z-index: 10;">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>New Password</label>
+              <div class="password-wrap" style="position: relative; display: block; width: 100%;">
+                <input class="form-control" type="password" id="newPassword" placeholder="Enter new password (min. 8 characters)" minlength="8" style="padding-right: 42px; box-sizing: border-box; width: 100%;" />
+                <button type="button" class="password-toggle" onclick="togglePasswordVisibility('newPassword', this)" style="position: absolute; top: 50%; right: 10px; transform: translateY(-50%); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; padding: 0; margin: 0; cursor: pointer; color: #64748B; z-index: 10;">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Confirm New Password</label>
+              <div class="password-wrap" style="position: relative; display: block; width: 100%;">
+                <input class="form-control" type="password" id="confirmPassword" placeholder="Confirm new password" minlength="8" style="padding-right: 42px; box-sizing: border-box; width: 100%;" />
+                <button type="button" class="password-toggle" onclick="togglePasswordVisibility('confirmPassword', this)" style="position: absolute; top: 50%; right: 10px; transform: translateY(-50%); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; padding: 0; margin: 0; cursor: pointer; color: #64748B; z-index: 10;">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Update Password button (matches mobile layout) -->
+            <button type="button" class="btn btn-primary w-full" onclick="changePassword()" style="margin-top:12px;">
+              <i class="fa-solid fa-save"></i> Update Password
+            </button>
+
+            <!-- Message area where success/error feedback is shown -->
+            <p id="passwordMessage" class="msg" style="display:none; margin-top:10px;"></p>
+          </div>
+        </div>
         </div>
       </section>
 
@@ -433,8 +460,7 @@
           </div>
           <div class="form-group">
             <label>Contact Number</label>
-            <input class="form-control" type="text" id="editCpnumber" placeholder="+63XXXXXXXXXX" pattern="^\+63[0-9]{10,11}$" />
-            <small style="color: #ef4444; display: block; margin-top: 4px; font-size: 12px;">Contact number must start with +63 followed by 10-11 digits</small>
+            <input class="form-control" type="text" id="editCpnumber" value="+63" pattern="^\+63[0-9]{10,11}$" />
           </div>
           <div class="form-group">
             <label>Birth Date</label>

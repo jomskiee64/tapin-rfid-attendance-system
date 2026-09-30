@@ -226,6 +226,7 @@
     <div class="section-card">
       <div class="section-title"><i class="fa-solid fa-id-card"></i> Account Information</div>
       <div class="info-list">
+        <div class="info-row"><i class="fa-solid fa-wifi"></i><span class="info-label">RFID</span><span class="info-val" id="profileRfid">--</span></div>
         <div class="info-row"><i class="fa-solid fa-id-badge"></i><span class="info-label">Employee ID</span><span class="info-val" id="profileEmpId">--</span></div>
         <div class="info-row"><i class="fa-solid fa-envelope"></i><span class="info-label">Email</span><span class="info-val" id="profileEmail">--</span></div>
         <div class="info-row"><i class="fa-solid fa-phone"></i><span class="info-label">Phone</span><span class="info-val" id="profilePhone">--</span></div>
@@ -240,9 +241,37 @@
 
     <div class="section-card">
       <div class="section-title"><i class="fa-solid fa-key"></i> Change Password</div>
-      <div class="form-row"><label>Current Password</label><input type="password" class="form-control" id="currentPassword" /></div>
-      <div class="form-row"><label>New Password</label><input type="password" class="form-control" id="newPassword" /></div>
-      <div class="form-row"><label>Confirm Password</label><input type="password" class="form-control" id="confirmPassword" /></div>
+
+      <div class="form-row">
+        <label>Current Password</label>
+        <div class="password-wrap">
+          <input type="password" class="form-control" id="currentPassword" placeholder="Enter current password" />
+          <button type="button" class="password-toggle" onclick="togglePasswordVisibility('currentPassword', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>New Password</label>
+        <div class="password-wrap">
+          <input type="password" class="form-control" id="newPassword" placeholder="Enter new password (min. 8 characters)" minlength="8" />
+          <button type="button" class="password-toggle" onclick="togglePasswordVisibility('newPassword', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Confirm Password</label>
+        <div class="password-wrap">
+          <input type="password" class="form-control" id="confirmPassword" placeholder="Confirm new password" minlength="8" />
+          <button type="button" class="password-toggle" onclick="togglePasswordVisibility('confirmPassword', this)">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
       <button class="btn btn-primary w-full" onclick="changePassword()"><i class="fa-solid fa-save"></i> Update Password</button>
       <p id="passwordMessage" class="msg" style="display:none;"></p>
     </div>
@@ -288,8 +317,7 @@
       <div class="form-row"><label>First Name</label><input class="form-control" type="text" id="editFirstname" required /></div>
       <div class="form-row"><label>Last Name</label><input class="form-control" type="text" id="editLastname" required /></div>
       <div class="form-row"><label>Email</label><input class="form-control" type="email" id="editEmail" required /></div>
-      <div class="form-row"><label>Contact Number</label><input class="form-control" type="text" id="editCpnumber" placeholder="+63XXXXXXXXXX" pattern="^\+63[0-9]{10,11}$" /></div>
-<small class="form-text text-muted">Contact number must start with +63 followed by 10-11 digits</small>
+      <div class="form-row"><label>Contact Number</label><input class="form-control" type="text" id="editCpnumber" value="+63" pattern="^\+63[0-9]{10,11}$" /></div>
       <div class="form-row"><label>Birth Date</label><input class="form-control" type="date" id="editBdate" /></div>
       <div class="form-row"><label>Address</label><input class="form-control" type="text" id="editAddress" /></div>
       <div class="form-row"><label>Position</label><input class="form-control" type="text" id="editPosition" /></div>

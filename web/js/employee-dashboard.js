@@ -32,6 +32,27 @@ function escapeHtml(value) {
   }[c]));
 }
 
+/* ---------------- PASSWORD TOGGLE ---------------- */
+
+// Toggle a password input between hidden and visible, and swap the eye icon.
+// Same behavior as the login page password toggle.
+function togglePasswordVisibility(inputId, buttonEl) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const isPassword = input.type === 'password';
+  input.type = isPassword ? 'text' : 'password';
+
+  const icon = buttonEl ? buttonEl.querySelector('i') : null;
+  if (icon) {
+    icon.className = isPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+  }
+  if (buttonEl) {
+    buttonEl.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+    buttonEl.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+  }
+}
+
 // Format a date value (e.g. "2026-09-01", with or without a time suffix, or
 // a Date) into the DTR "D - Mon" style (e.g. "1 - Sep"). Works for any
 // month/year — nothing here is hard-coded to a specific month.
@@ -826,21 +847,24 @@ function populateWorkStatusTypeDropdown() {
 
   // Define standard work status types (must match backend WORK_STATUS_TYPES)
   const workStatusTypes = [
+    { value: 'vacation_leave', label: 'Vacation Leave (Sec. 51, Rule XVI)' },
+    { value: 'mandatory_forced_leave', label: 'Mandatory/Forced Leave (Sec. 25, Rule XVI)' },
+    { value: 'sick_leave', label: 'Sick Leave (Sec. 43, Rule XVI)' },
+    { value: 'maternity_leave', label: 'Maternity Leave (R.A. No. 11210)' },
+    { value: 'paternity_leave', label: 'Paternity Leave (R.A. No. 8187)' },
+    { value: 'special_privilege_leave', label: 'Special Privilege Leave (Sec. 21, Rule XVI)' },
+    { value: 'solo_parent_leave', label: 'Solo Parent Leave (RA No. 8972)' },
+    { value: 'study_leave', label: 'Study Leave (Sec. 68, Rule XVI)' },
+    { value: '10_day_vawc_leave', label: '10-Day VAWC Leave (RA No. 9262)' },
+    { value: 'rehabilitation_privilege', label: 'Rehabilitation Privilege (Sec. 55, Rule XVI)' },
+    { value: 'special_leave_benefits_women', label: 'Special Leave Benefits for Women' },
+    { value: 'special_emergency_calamity_leave', label: 'Special Emergency (Calamity) Leave' },
+    { value: 'adoption_leave', label: 'Adoption Leave (R.A. No. 8552)' },
     { value: 'on_leave', label: 'On Leave' },
     { value: 'official_travel', label: 'Official Travel' },
     { value: 'official_business', label: 'Official Business' },
     { value: 'work_from_home', label: 'Work From Home (WFH)' },
-    { value: 'field_work', label: 'Field Work' },
-    { value: 'training', label: 'Training' },
-    { value: 'conference_seminar', label: 'Conference / Seminar' },
-    { value: 'work_assignment', label: 'Work Assignment' },
-    { value: 'offsite_duty', label: 'Offsite Duty' },
-    { value: 'client_visit', label: 'Client Visit' },
-    { value: 'meeting_outside_office', label: 'Meeting Outside Office' },
-    { value: 'special_assignment', label: 'Special Assignment' },
-    { value: 'suspended_work', label: 'Suspended Work' },
-    { value: 'holiday_non_working', label: 'Holiday / Non-Working Day' },
-    { value: 'rest_day', label: 'Rest Day' }
+    { value: 'others', label: 'Others:' }
   ];
 
   // Add options to dropdown
@@ -1352,17 +1376,33 @@ async function submitEditProfile(event) {
 
 async function changePassword() {
   const msgEl = document.getElementById('passwordMessage');
-  const current = document.getElementById('currentPassword').value;
-  const newPwd = document.getElementById('newPassword').value;
-  const confirm = document.getElementById('confirmPassword').value;
+  const currentEl = document.getElementById('currentPassword');
+  const newEl = document.getElementById('newPassword');
+  const confirmEl = document.getElementById('confirmPassword');
 
+  if (!msgEl || !currentEl || !newEl || !confirmEl) {
+    console.warn('changePassword: one or more password fields are missing from the DOM.');
+    return;
+  }
+
+  const current = currentEl.value;
+  const newPwd = newEl.value;
+  const confirm = confirmEl.value;
+
+  // Reset the message area and show a pending state.
   msgEl.style.display = 'block';
   msgEl.style.color = '#3B82F6';
   msgEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
 
+  // ---- Client-side validation ------------------------------------------
   if (!current || !newPwd || !confirm) {
     msgEl.style.color = '#EF4444';
     msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> Please fill in all fields.';
+    return;
+  }
+  if (newPwd.length < 8) {
+    msgEl.style.color = '#EF4444';
+    msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> New password must be at least 8 characters.';
     return;
   }
   if (newPwd !== confirm) {
@@ -1370,12 +1410,22 @@ async function changePassword() {
     msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> New passwords do not match.';
     return;
   }
+  if (newPwd === current) {
+    msgEl.style.color = '#EF4444';
+    msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> New password must be different from the current password.';
+    return;
+  }
 
+  // ---- Submit to backend ------------------------------------------------
   try {
     const res = await fetch(`${dashboardApiBaseUrl}/api/change-password`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ rfid: currentUser.rfid, current_password: current, new_password: newPwd }),
+      body: JSON.stringify({
+        rfid: currentUser.rfid,
+        current_password: current,
+        new_password: newPwd
+      }),
       credentials: 'include'
     });
 
@@ -1388,15 +1438,32 @@ async function changePassword() {
       return;
     }
 
+    // ---- Success --------------------------------------------------------
     msgEl.style.color = '#10B981';
     msgEl.innerHTML = '<i class="fa-solid fa-check-circle"></i> Password updated successfully!';
-    document.getElementById('currentPassword').value = '';
-    document.getElementById('newPassword').value = '';
-    document.getElementById('confirmPassword').value = '';
+
+    // Clear all three fields
+    currentEl.value = '';
+    newEl.value = '';
+    confirmEl.value = '';
+
+    // Reset each field's type back to "password" so the eye icon resets too.
+    [currentEl, newEl, confirmEl].forEach((el) => {
+      el.type = 'password';
+    });
+    document.querySelectorAll('.password-toggle i').forEach((icon) => {
+      icon.className = 'fa-solid fa-eye';
+    });
+
+    // Auto-hide the success message after 4 seconds
+    setTimeout(() => {
+      if (msgEl) msgEl.style.display = 'none';
+    }, 4000);
+
   } catch (err) {
     console.error('Change password error:', err);
     msgEl.style.color = '#EF4444';
-    msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> Network error.';
+    msgEl.innerHTML = '<i class="fa-solid fa-exclamation-circle"></i> Network error. Please try again.';
   }
 }
 
