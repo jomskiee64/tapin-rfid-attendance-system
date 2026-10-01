@@ -532,6 +532,15 @@ last_scan_tracking = {}
 # Cooldown between scans for the same RFID (in seconds). Default 3 minutes.
 SCAN_COOLDOWN_SECONDS = 3 * 60
 
+# Authorized RFID list from face scans waiting for RFID tap confirmation
+# Structure: Set of RFID strings that have been face-scanned and are awaiting RFID tap
+authorized_face_rfids = set()
+
+# Face scan behavior toggle
+# When True: face scans can write directly to DTR (original behavior)
+# When False: face scans only authorize RFID for later tap (secure two-factor)
+FACE_SCAN_ALLOW_DIRECT_DTR = False
+
 # ============================================================================
 # DAILY STATS HELPERS - PERSISTENT DAILY COUNTERS
 # ============================================================================
@@ -2173,19 +2182,16 @@ def determine_scan_type(day_data, scan_time, employee):
     # Block if the LAST recorded tap for this RFID was the SAME direction
     # (in / out) and it happened within the cooldown window. This stops an
     # accidental double-tap from burning the next slot.
-    def same_direction_within_cooldown(direction):
+    def any_scan_within_cooldown():
         if rfid not in last_scan_tracking:
             return False
-        last = last_scan_tracking[rfid]
-        if last.get("last_scan_type") != direction:
-            return False
-        last_time = last.get("last_scan_time")
+        last_time = last_scan_tracking[rfid].get("last_scan_time")
         if last_time is None:
             return False
         return (scan_time - last_time).total_seconds() < SCAN_COOLDOWN_SECONDS
 
-    if same_direction_within_cooldown(scan_type):
-        print(f"{scan_type.upper()} cooldown not met for {rfid}")
+    if any_scan_within_cooldown():
+        print(f"Scan blocked for {rfid} - cooldown not met")
         return None
 
     # ---- 6) Return the chosen slot ----------------------------------------
@@ -5526,58 +5532,74 @@ def faces_record():
         except ValueError:
             scanned_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    try:
-        record, result = record_attendance_scan(employee, scanned_at)
-        save_attendance_data()
-
-        # Record the daily stats (present + face scan counts) so the counters
-        # are updated even when no dashboard is open. The "face" source
-        # increments face_scan_count instead of rfid_scan_count.
+    # Check if face scans are allowed to write directly to DTR
+    if FACE_SCAN_ALLOW_DIRECT_DTR:
+        # Original behavior: face scan writes directly to DTR
         try:
-            record_daily_scan(uid=employee.get("uid"), source="face")
-        except Exception as e:
-            print(f"Warning: failed to update daily stats from face scan: {e}")
+            record, result = record_attendance_scan(employee, scanned_at)
+            save_attendance_data()
 
-        _face_log_scan(employee_rfid, employee, confidence, "face_verified", "face_verification")
-        add_scan_to_feed(employee_rfid, scanned_at, employee, True, scan_type="face_recognition")
-        scan_events.append({
-            "rfid": employee_rfid,
-            "scanned_at": scanned_at,
-            "scanned_on": datetime.now().date().isoformat(),
-            "scan_type": "face",
-            "confidence": confidence,
-        })
-        save_scan_events({"scan_events": scan_events[-10000:]})
-        add_activity(
-            "face_attendance",
-            f"✅ Face recognized: {employee.get('firstname', '')} {employee.get('lastname', '')} "
-            f"({employee.get('employeeid', '')}) - {confidence:.1f}% confidence - {result}",
-            {"name": "Face Scanner", "uid": "system"},
-            "attendance"
-        )
-        is_present = result in ["success", "already_exists"]
+            # Record the daily stats (present + face scan counts) so the counters
+            # are updated even when no dashboard is open. The "face" source
+            # increments face_scan_count instead of rfid_scan_count.
+            try:
+                record_daily_scan(uid=employee.get("uid"), source="face")
+            except Exception as e:
+                print(f"Warning: failed to update daily stats from face scan: {e}")
+
+            _face_log_scan(employee_rfid, employee, confidence, "face_verified", "face_verification")
+            add_scan_to_feed(employee_rfid, scanned_at, employee, True, scan_type="face_recognition")
+            scan_events.append({
+                "rfid": employee_rfid,
+                "scanned_at": scanned_at,
+                "scanned_on": datetime.now().date().isoformat(),
+                "scan_type": "face",
+                "confidence": confidence,
+            })
+            save_scan_events({"scan_events": scan_events[-10000:]})
+            add_activity(
+                "face_attendance",
+                f"✅ Face recognized: {employee.get('firstname', '')} {employee.get('lastname', '')} "
+                f"({employee.get('employeeid', '')}) - {confidence:.1f}% confidence - {result}",
+                {"name": "Face Scanner", "uid": "system"},
+                "attendance"
+            )
+            is_present = result in ["success", "already_exists"]
+            return jsonify({
+                "status": "success",
+                "message": result,
+                "source": "face-scanner",
+                "confidence": confidence,
+                "scanned_at": scanned_at,
+                "employee": _face_employee_public(employee),
+                "is_present": is_present,
+                "rfid_used": employee_rfid,
+                "attendance_status": result,
+                "profile_image": f"/storage/profiles/{os.path.basename(profile_image)}",
+                "samples": 1,
+            }), 200
+        except Exception as exc:
+            print(f"❌ Face attendance recording failed: {exc}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "status": "error",
+                "message": f"Face attendance recording failed: {str(exc)}",
+                "uid": uid, "rfid": rfid,
+            }), 500
+    else:
+        # New behavior: face scan only authorizes RFID for later tap (secure two-factor)
+        authorized_face_rfids.add(employee_rfid)
+
         return jsonify({
             "status": "success",
-            "message": result,
+            "message": "face_scanned_waiting_for_rfid",
             "source": "face-scanner",
             "confidence": confidence,
             "scanned_at": scanned_at,
             "employee": _face_employee_public(employee),
-            "is_present": is_present,
             "rfid_used": employee_rfid,
-            "attendance_status": result,
-            "profile_image": f"/storage/profiles/{os.path.basename(profile_image)}",
-            "samples": 1,
         }), 200
-    except Exception as exc:
-        print(f"❌ Attendance recording failed: {exc}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "message": f"Attendance recording failed: {str(exc)}",
-            "uid": uid, "rfid": rfid,
-        }), 500
 
 
 @app.route("/api/faces/dashboard-stats", methods=["GET"])
@@ -6705,6 +6727,14 @@ def receive_rfid():
         scan_events_data = {"scan_events": scan_events[-10000:]}
         save_scan_events(scan_events_data)
 
+        # Check authorization based on face scan behavior setting
+        if not FACE_SCAN_ALLOW_DIRECT_DTR:
+            # Secure two-factor mode: require face scan authorization
+            if rfid not in authorized_face_rfids:
+                print(f"RFID not authorized by face scan: {rfid}")
+                return "ERROR: RFID not authorized - please scan face first", 403
+        # If FACE_SCAN_ALLOW_DIRECT_DTR is True, no authorization check needed (original behavior)
+
         # Process attendance if employee found
         if employee:
             print(f"RFID matched: {employee['firstname']} {employee['lastname']}")
@@ -6712,6 +6742,12 @@ def receive_rfid():
             print(f"Attendance record result: {result}")
             # Save attendance data (ONLY records, no scan events)
             save_attendance_data()
+
+            # In two-factor mode, remove RFID from authorized list after successful recording
+            if not FACE_SCAN_ALLOW_DIRECT_DTR:
+                authorized_face_rfids.discard(rfid)
+            # In direct mode, no authorization list to manage
+
             # Return simple OK with scan result
             return f"OK: {result}", 200
         else:
@@ -6723,6 +6759,10 @@ def receive_rfid():
                 None,
                 "system"
             )
+            # In two-factor mode, clean up authorized list
+            if not FACE_SCAN_ALLOW_DIRECT_DTR:
+                authorized_face_rfids.discard(rfid)
+            # In direct mode, no authorization list to manage
             return "ERROR: RFID not found", 404
 
     except Exception as e:

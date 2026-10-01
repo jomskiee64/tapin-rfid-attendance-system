@@ -305,6 +305,7 @@ Protected functionality may include:
 | **Test v0.1.0** | Testing | Initial IoT device testing version. RFID reader, LCD, buzzer, device communication, and basic RFID attendance functionality tested.                          |
 | **Test v0.2.0** | Testing | Web version developed and tested                                                                                                                             |
 | **Test v0.3.0** | Testing | API server updates and improvements to RFID attendance processing.                                                                                           |
+| **Test v0.4.0** | Testing | Face recognition system integration and testing                                                                                                              |
 
 ### Beta v0.0.0
 
