@@ -1,8 +1,8 @@
 ## network configuration
 
 ## Primary WiFi
-SSID = "HUAWEI-ADMINLOBBY"
-PASSWORD = "adminlobby2023"
+SSID = "TP-Link_83D0"
+PASSWORD = "36793563"
 
 ## Backup WiFi — used automatically if the primary fails 3 times
 BACKUP_SSID = "tapin"
