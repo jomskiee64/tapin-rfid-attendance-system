@@ -114,6 +114,7 @@ let lastSent = new Map();
 let scanCount = 0;
 let todayAttendance = [];
 let statsRefreshTimer = null;
+let initialTemplateCount = 0; // Baseline count for auto-refresh detection
 
 // Live loop state — we use requestAnimationFrame + a throttle timestamp
 // instead of setTimeout, so the box tracks the face smoothly in real time.
@@ -472,6 +473,13 @@ function stopCamera() {
   running = false;
   stopLiveLoop();
 
+  // Clear profile watcher interval if it exists
+  if (profileWatcherInterval) {
+    clearInterval(profileWatcherInterval);
+    profileWatcherInterval = null;
+    console.log("[faces.js] Profile watcher interval cleared");
+  }
+
   if (stream) {
     stream.getTracks().forEach(t => t.stop());
     stream = null;
@@ -582,6 +590,60 @@ function formatCooldownMmSs(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Setup watcher to check for new profiles every 1 minute
+let profileWatcherInterval = null;
+function setupProfileCountWatcher() {
+  console.log(`[faces.js] Setting up profile count watcher (baseline: ${initialTemplateCount})`);
+
+  // Clear any existing interval
+  if (profileWatcherInterval) {
+    clearInterval(profileWatcherInterval);
+    profileWatcherInterval = null;
+  }
+
+  // Set up interval to check every 1 minute (60000 ms)
+  profileWatcherInterval = setInterval(async () => {
+    try {
+      console.log("[faces.js] Checking for new profiles...");
+
+      // Fetch current template count from the API
+      const res = await fetch(`${API_BASE}/employees`);
+      if (!res.ok) {
+        console.warn("[faces.js] Failed to fetch employee templates for watcher:", res.status);
+        return;
+      }
+
+      const data = await res.json();
+      const currentCount = data.employees?.length || 0;
+
+      console.log(`[faces.js] Current profile count: ${currentCount}, baseline: ${initialTemplateCount}`);
+
+      // If current count is greater than our initial loaded count, trigger refresh
+      if (currentCount > initialTemplateCount) {
+        console.log(`[faces.js] New profiles detected! Count increased from ${initialTemplateCount} to ${currentCount}. Refreshing data...`);
+
+        // Clear the interval since we've detected new profiles
+        if (profileWatcherInterval) {
+          clearInterval(profileWatcherInterval);
+          profileWatcherInterval = null;
+        }
+
+        // Refresh all data
+        messageEl.textContent = "🔄 New profiles detected - refreshing data...";
+        await Promise.all([
+          loadTemplates().catch(e => console.error("refresh loadTemplates:", e)),
+          loadAttendance().catch(e => console.error("refresh loadAttendance:", e)),
+          loadStats().catch(e => console.error("refresh loadStats:", e)),
+          loadServerConfig().catch(e => console.warn("refresh loadServerConfig:", e))
+        ]);
+        messageEl.textContent = "✅ Data refreshed with new profiles!";
+      }
+    } catch (err) {
+      console.error("[faces.js] Error in profile count watcher:", err);
+    }
+  }, 60000); // Check every 1 minute
 }
 
 // Record-attempt throttle. Prevents the scanner from firing a POST on
@@ -939,4 +1001,25 @@ boot().then(() => {
   } else {
     messageEl.textContent = "Could not load AI models. Reload the page to retry.";
   }
+}).then(() => {
+  // Set up profile watcher after all initial data is loaded
+  // We need to wait for stats to load so we can use profile_images as baseline
+  // But we don't want to delay camera startup, so we'll check periodically
+  // until we have the stats data, then set up the watcher
+  const checkForStats = () => {
+    // Check if we have stats data (statTFS element has been updated from initial "0")
+    const statTfs = document.getElementById("statTFS");
+    if (statTfs && statTfs.textContent !== "0") {
+      // We have stats data, use it as baseline
+      initialTemplateCount = parseInt(statTfs.textContent) || 0;
+      console.log(`[faces.js] Setting up profile count watcher with baseline from stats: ${initialTemplateCount}`);
+      setupProfileCountWatcher();
+    } else {
+      // Stats not ready yet, check again in 1 second
+      setTimeout(checkForStats, 1000);
+    }
+  };
+
+  // Start checking for stats data
+  checkForStats();
 });
