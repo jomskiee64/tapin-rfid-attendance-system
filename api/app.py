@@ -2699,9 +2699,12 @@ def get_dashboard_data():
             "cpnumber": employee.get("cpnumber"),
             "email": employee.get("email"),
             "username": employee.get("username"),
+            "gender": employee.get("gender"),
             "role": employee.get("role"),
             "department": employee.get("department"),
             "position": employee.get("position"),
+            "employment_type": employee.get("employment_type"),
+            "functional_role": employee.get("functional_role"),
             "image": employee.get("image"),
             "timestamp_creation": employee.get("timestamp_creation"),
             "timestamp_modified": employee.get("timestamp_modified")
@@ -6100,13 +6103,16 @@ def register_employee():
             "firstname": str(data.get("firstname", "")).strip(),
             "address": str(data.get("address", "")).strip(),
             "bdate": str(data.get("bdate", "")).strip(),
+            "gender": str(data.get("gender", "")).strip() or None,
             "cpnumber": str(data.get("cpnumber", "")).strip(),
             "email": str(data.get("email", "")).strip(),
             "username": str(data.get("username", "")).strip(),
             "password_hash": hashlib.md5(str(data.get("password", "")).encode("utf-8")).hexdigest(),
             "role": role,
-            "department": None,
-            "position": None,
+            "department": str(data.get("department", "")).strip() or None,
+            "position": str(data.get("position", "")).strip() or None,
+            "employment_type": str(data.get("employment_type", "")).strip() or None,
+            "functional_role": str(data.get("functional_role", "")).strip() or None,
             "image": image_path,
             "timestamp_creation": now,
             "timestamp_modified": now
@@ -6240,9 +6246,15 @@ def update_employee(rfid):
         if "username" in data and data.get("username"):
             updated_employee["username"] = str(data.get("username", "")).strip()
         if "department" in data:
-            updated_employee["department"] = str(data.get("department", "")).strip()
+            updated_employee["department"] = str(data.get("department", "")).strip() or None
         if "position" in data:
-            updated_employee["position"] = str(data.get("position", "")).strip()
+            updated_employee["position"] = str(data.get("position", "")).strip() or None
+        if "employment_type" in data:
+            updated_employee["employment_type"] = str(data.get("employment_type", "")).strip() or None
+        if "functional_role" in data:
+            updated_employee["functional_role"] = str(data.get("functional_role", "")).strip() or None
+        if "gender" in data:
+            updated_employee["gender"] = str(data.get("gender", "")).strip() or None
 
         # Update password if provided
         if "password" in data and data.get("password"):

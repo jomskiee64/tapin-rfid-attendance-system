@@ -483,6 +483,67 @@ function initials(user) {
     return `${user.firstname || ''} ${user.lastname || ''}`.trim().split(/\s+/).map((part) => part[0] || '').join('').slice(0, 2).toUpperCase() || '--';
 }
 
+// Normalize employment type, functional role, and gender values from display format to option value format
+function normalizeEmploymentType(value) {
+    if (!value) return '';
+    const lower = value.toLowerCase();
+    const map = {
+        'permanent / regular': 'permanent_regular',
+        'job order (jo)': 'job_order',
+        'contract of service (cos)': 'contract_service',
+        'provisional / temporary': 'provisional_temporary',
+        'substitute / casual': 'substitute_casual'
+    };
+    return map[lower] || lower.replace(/[\s\/]+/g, '_').replace(/\([^)]*\)/, '').replace(/^_|_$/g, '');
+}
+
+function normalizeFunctionalRole(value) {
+    if (!value) return '';
+    const lower = value.toLowerCase();
+    const map = {
+        'teaching personnel': 'teaching',
+        'administrative & clerical staff': 'administrative',
+        'student services personnel': 'student_services',
+        'facilities & security personnel': 'facilities_security'
+    };
+    return map[lower] || lower.replace(/[&\s]+/g, '_').replace(/\([^)]*\)/, '').replace(/^_|_$/g, '');
+}
+
+function normalizeGender(value) {
+    if (!value) return '';
+    const lower = value.toLowerCase();
+    const map = {
+        'male': 'male',
+        'female': 'female',
+        'other': 'other'
+    };
+    return map[lower] || lower;
+}
+
+// Normalize department values from display format to option value format
+function normalizeDepartment(value) {
+    if (!value) return '';
+    // Take the part before the "•" if it exists, otherwise use the whole value
+    const parts = value.split('•');
+    const firstPart = parts[0].trim();
+    // Convert to lowercase
+    return firstPart.toLowerCase();
+}
+
+// Normalize position values from display format to option value format
+function normalizePosition(value) {
+    if (!value) return '';
+    // Convert to lowercase and replace spaces with underscores
+    return value.toLowerCase().replace(/\s+/g, '_');
+}
+
+// Normalize role values from display format to option value format
+function normalizeRole(value) {
+    if (!value) return '';
+    // Convert to lowercase
+    return value.toLowerCase();
+}
+
 // ============ SEARCH FUNCTIONALITY ============
 
 // Store search results for autocomplete
@@ -1071,6 +1132,10 @@ function renderEmployeeCards(employees) {
                             <span class="emp-info-val">${escapeHtml(department)}</span>
                         </div>
                         <div class="emp-info-row">
+                            <i class="fa-solid fa-venus-mars"></i>
+                            <span class="emp-info-val">${escapeHtml(user.gender || '--')}</span>
+                        </div>
+                        <div class="emp-info-row">
                             <i class="fa-solid fa-user-tag"></i>
                             <span class="emp-info-val" style="display:inline-flex;align-items:center;gap:6px;">
                                 <span class="badge" style="background:${roleBg};color:${roleColor};font-size:10px;padding:2px 10px;">${escapeHtml(role.toUpperCase())}</span>
@@ -1594,19 +1659,71 @@ function editEmployee(uid) {
                                 <input class="form-control" type="date" id="editBdate" value="${escapeHtml(employee.bdate || '')}" required />
                             </div>
                             <div class="form-group">
+                                <label>Gender</label>
+                                <select class="form-control" id="editGender">
+                                    <option value="">-- Select Gender --</option>
+                                    <option value="male" ${normalizeGender(employee.gender) === 'male' ? 'selected' : ''}>Male</option>
+                                    <option value="female" ${normalizeGender(employee.gender) === 'female' ? 'selected' : ''}>Female</option>
+                                    <option value="other" ${normalizeGender(employee.gender) === 'other' ? 'selected' : ''}>Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
                                 <label>Department</label>
-                                <input class="form-control" type="text" id="editDepartment" value="${escapeHtml(employee.department || '')}" />
+                                <select class="form-control" id="editDepartment">
+                                    <option value="">-- Select Department --</option>
+                                    <option value="cte" ${normalizeDepartment(employee.department) === 'cte' ? 'selected' : ''}>CTE • College of Teacher Education</option>
+                                    <option value="cas" ${normalizeDepartment(employee.department) === 'cas' ? 'selected' : ''}>CAS • College of Arts and Sciences</option>
+                                    <option value="cbhm" ${normalizeDepartment(employee.department) === 'cbhm' ? 'selected' : ''}>CBHM • College of Business Management and Hospitality Management</option>
+                                    <option value="lhs" ${normalizeDepartment(employee.department) === 'lhs' ? 'selected' : ''}>LHS • Laboratory High School</option>
+                                </select>
                             </div>
                             <div class="form-group">
                                 <label>Position</label>
-                                <input class="form-control" type="text" id="editPosition" value="${escapeHtml(employee.position || '')}" />
+                                <select class="form-control" id="editPosition">
+                                    <option value="">-- Select Position --</option>
+                                    <option value="campus_director" ${normalizePosition(employee.position) === 'campus_director' ? 'selected' : ''}>Campus director</option>
+                                    <option value="college_dean" ${normalizePosition(employee.position) === 'college_dean' ? 'selected' : ''}>College dean</option>
+                                    <option value="high_school_principal" ${normalizePosition(employee.position) === 'high_school_principal' ? 'selected' : ''}>High school principal</option>
+                                    <option value="program_chair" ${normalizePosition(employee.position) === 'program_chair' ? 'selected' : ''}>Program chair</option>
+                                    <option value="professor" ${normalizePosition(employee.position) === 'professor' ? 'selected' : ''}>Professor</option>
+                                    <option value="associate_professor" ${normalizePosition(employee.position) === 'associate_professor' ? 'selected' : ''}>Associate professor</option>
+                                    <option value="assistant_professor" ${normalizePosition(employee.position) === 'assistant_professor' ? 'selected' : ''}>Assistant professor</option>
+                                    <option value="instructor" ${normalizePosition(employee.position) === 'instructor' ? 'selected' : ''}>Instructor</option>
+                                    <option value="part_time_lecturer" ${normalizePosition(employee.position) === 'part_time_lecturer' ? 'selected' : ''}>Part-time lecturer</option>
+                                    <option value="administrative_officer" ${normalizePosition(employee.position) === 'administrative_officer' ? 'selected' : ''}>Administrative officer</option>
+                                    <option value="campus_registrar" ${normalizePosition(employee.position) === 'campus_registrar' ? 'selected' : ''}>Campus registrar</option>
+                                    <option value="administrative_aide" ${normalizePosition(employee.position) === 'administrative_aide' ? 'selected' : ''}>Administrative aide</option>
+                                    <option value="guidance_counselor" ${normalizePosition(employee.position) === 'guidance_counselor' ? 'selected' : ''}>Guidance counselor</option>
+                                    <option value="librarian" ${normalizePosition(employee.position) === 'librarian' ? 'selected' : ''}>Librarian</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Employment Type</label>
+                                <select class="form-control" id="editEmploymentType">
+                                    <option value="">-- Select Employment Type --</option>
+                                    <option value="permanent_regular" ${normalizeEmploymentType(employee.employment_type) === 'permanent_regular' ? 'selected' : ''}>Permanent / Regular</option>
+                                    <option value="job_order" ${normalizeEmploymentType(employee.employment_type) === 'job_order' ? 'selected' : ''}>Job Order (JO)</option>
+                                    <option value="contract_service" ${normalizeEmploymentType(employee.employment_type) === 'contract_service' ? 'selected' : ''}>Contract of Service (COS)</option>
+                                    <option value="provisional_temporary" ${normalizeEmploymentType(employee.employment_type) === 'provisional_temporary' ? 'selected' : ''}>Provisional / Temporary</option>
+                                    <option value="substitute_casual" ${normalizeEmploymentType(employee.employment_type) === 'substitute_casual' ? 'selected' : ''}>Substitute / Casual</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Functional Role</label>
+                                <select class="form-control" id="editFunctionalRole">
+                                    <option value="">-- Select Functional Role --</option>
+                                    <option value="teaching" ${normalizeFunctionalRole(employee.functional_role) === 'teaching' ? 'selected' : ''}>Teaching Personnel</option>
+                                    <option value="administrative" ${normalizeFunctionalRole(employee.functional_role) === 'administrative' ? 'selected' : ''}>Administrative & Clerical Staff</option>
+                                    <option value="student_services" ${normalizeFunctionalRole(employee.functional_role) === 'student_services' ? 'selected' : ''}>Student Services Personnel</option>
+                                    <option value="facilities_security" ${normalizeFunctionalRole(employee.functional_role) === 'facilities_security' ? 'selected' : ''}>Facilities & Security Personnel</option>
+                                </select>
                             </div>
                             <div class="form-group">
                                 <label>Role</label>
                                 <select class="form-control" id="editRole">
-                                    <option value="employee" ${employee.role === 'employee' ? 'selected' : ''}>Employee</option>
-                                    <option value="hr" ${employee.role === 'hr' ? 'selected' : ''}>HR</option>
-                                    <option value="admin" ${employee.role === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="employee" ${normalizeRole(employee.role) === 'employee' ? 'selected' : ''}>Employee</option>
+                                    <option value="hr" ${normalizeRole(employee.role) === 'hr' ? 'selected' : ''}>HR</option>
+                                    <option value="admin" ${normalizeRole(employee.role) === 'admin' ? 'selected' : ''}>Admin</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1710,6 +1827,9 @@ async function submitEditEmployee(event) {
     formData.append('bdate', document.getElementById('editBdate').value);
     formData.append('department', document.getElementById('editDepartment').value);
     formData.append('position', document.getElementById('editPosition').value);
+    formData.append('employment_type', document.getElementById('editEmploymentType').value);
+    formData.append('functional_role', document.getElementById('editFunctionalRole').value);
+    formData.append('gender', document.getElementById('editGender').value);
     formData.append('role', document.getElementById('editRole').value);
     formData.append('username', document.getElementById('editUsername').value);
 
@@ -4023,6 +4143,8 @@ function openProfileModal() {
     if (phoneEl) phoneEl.textContent = user.phone || '--';
     if (departmentEl) departmentEl.textContent = user.department || '--';
     if (employeeIdEl) employeeIdEl.textContent = user.employeeid || user.uid || '--';
+    const genderEl = document.getElementById('profileGender');
+    if (genderEl) genderEl.textContent = user.gender || '--';
     if (roleEl) roleEl.textContent = role;
 
     modal.classList.remove('hidden');

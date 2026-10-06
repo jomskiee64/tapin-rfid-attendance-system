@@ -230,9 +230,13 @@
         <div class="info-row"><i class="fa-solid fa-id-badge"></i><span class="info-label">Employee ID</span><span class="info-val" id="profileEmpId">--</span></div>
         <div class="info-row"><i class="fa-solid fa-envelope"></i><span class="info-label">Email</span><span class="info-val" id="profileEmail">--</span></div>
         <div class="info-row"><i class="fa-solid fa-phone"></i><span class="info-label">Phone</span><span class="info-val" id="profilePhone">--</span></div>
+        <div class="info-row"><i class="fa-solid fa-cake"></i><span class="info-label">Birth Date</span><span class="info-val" id="profileBdate">--</span></div>
+        <div class="info-row"><i class="fa-solid fa-venus-mars"></i><span class="info-label">Gender</span><span class="info-val" id="profileGender">--</span></div>
+        <div class="info-row"><i class="fa-solid fa-home"></i><span class="info-label">Address</span><span class="info-val" id="profileAddress">--</span></div>
         <div class="info-row"><i class="fa-solid fa-building"></i><span class="info-label">Department</span><span class="info-val" id="profileDept">--</span></div>
         <div class="info-row"><i class="fa-solid fa-briefcase"></i><span class="info-label">Position</span><span class="info-val" id="profilePosition">--</span></div>
-        <div class="info-row"><i class="fa-solid fa-home"></i><span class="info-label">Address</span><span class="info-val" id="profileAddress">--</span></div>
+        <div class="info-row"><i class="fa-solid fa-clipboard-list"></i><span class="info-label">Employment Type</span><span class="info-val" id="profileEmployType">--</span></div>
+        <div class="info-row"><i class="fa-solid fa-users-gear"></i><span class="info-label">Functional Role</span><span class="info-val" id="profileFuncRole">--</span></div>
       </div>
       <button class="btn btn-primary w-full" style="margin-top:10px;" onclick="openEditProfileModal()">
         <i class="fa-solid fa-pen-to-square"></i> Edit Profile
@@ -319,8 +323,52 @@
       <div class="form-row"><label>Email</label><input class="form-control" type="email" id="editEmail" required /></div>
       <div class="form-row"><label>Contact Number</label><input class="form-control" type="text" id="editCpnumber" value="+63" pattern="^\+63[0-9]{10,11}$" /></div>
       <div class="form-row"><label>Birth Date</label><input class="form-control" type="date" id="editBdate" /></div>
+      <div class="form-row"><label>Gender</label><select class="form-control" id="editGender">
+        <option value="">-- Select Gender --</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="other">Other</option>
+      </select></div>
       <div class="form-row"><label>Address</label><input class="form-control" type="text" id="editAddress" /></div>
-      <div class="form-row"><label>Position</label><input class="form-control" type="text" id="editPosition" /></div>
+      <div class="form-row"><label>Department</label><select class="form-control" id="editDepartment">
+        <option value="">-- Select Department --</option>
+        <option value="cte">CTE • College of Teacher Education</option>
+        <option value="cas">CAS • College of Arts and Sciences</option>
+        <option value="cbhm">CBHM • College of Business Management and Hospitality Management</option>
+        <option value="lhs">LHS • Laboratory High School</option>
+      </select></div>
+      <div class="form-row"><label>Position</label><select class="form-control" id="editPosition">
+        <option value="">-- Select Position --</option>
+        <option value="campus_director">Campus director</option>
+        <option value="college_dean">College dean</option>
+        <option value="high_school_principal">High school principal</option>
+        <option value="program_chair">Program chair</option>
+        <option value="professor">Professor</option>
+        <option value="associate_professor">Associate professor</option>
+        <option value="assistant_professor">Assistant professor</option>
+        <option value="instructor">Instructor</option>
+        <option value="part_time_lecturer">Part-time lecturer</option>
+        <option value="administrative_officer">Administrative officer</option>
+        <option value="campus_registrar">Campus registrar</option>
+        <option value="administrative_aide">Administrative aide</option>
+        <option value="guidance_counselor">Guidance counselor</option>
+        <option value="librarian">Librarian</option>
+      </select></div>
+      <div class="form-row"><label>Employment Type</label><select class="form-control" id="editEmploymentType">
+        <option value="">-- Select Employment Type --</option>
+        <option value="permanent_regular">Permanent / Regular</option>
+        <option value="job_order">Job Order (JO)</option>
+        <option value="contract_service">Contract of Service (COS)</option>
+        <option value="provisional_temporary">Provisional / Temporary</option>
+        <option value="substitute_casual">Substitute / Casual</option>
+      </select></div>
+      <div class="form-row"><label>Functional Role</label><select class="form-control" id="editFunctionalRole">
+        <option value="">-- Select Functional Role --</option>
+        <option value="teaching">Teaching Personnel</option>
+        <option value="administrative">Administrative & Clerical Staff</option>
+        <option value="student_services">Student Services Personnel</option>
+        <option value="facilities_security">Facilities & Security Personnel</option>
+      </select></div>
       <div class="form-row"><label>Username</label><input class="form-control" type="text" id="editUsername" /></div>
       <div class="form-row"><label>Profile Image</label><input class="form-control" type="file" id="editProfileImage" accept="image/*" capture="user" /></div>
 <button type="button" class="btn btn-outline w-full" style="margin-top:10px;" onclick="document.getElementById('editProfileImage').click()">

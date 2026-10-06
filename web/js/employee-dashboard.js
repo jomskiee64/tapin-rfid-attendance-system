@@ -1257,9 +1257,12 @@ function openEditProfileModal() {
   document.getElementById('editEmail').value = currentUser.email || '';
   document.getElementById('editCpnumber').value = currentUser.cpnumber || '';
   document.getElementById('editBdate').value = currentUser.bdate || '';
+  document.getElementById('editGender').value = currentUser.gender || '';
   document.getElementById('editAddress').value = currentUser.address || '';
   document.getElementById('editDepartment').value = currentUser.department || '';
   document.getElementById('editPosition').value = currentUser.position || '';
+  document.getElementById('editEmploymentType').value = currentUser.employment_type || '';
+  document.getElementById('editFunctionalRole').value = currentUser.functional_role || '';
   document.getElementById('editUsername').value = currentUser.username || '';
   document.getElementById('editRfid').value = currentUser.rfid || '';
   document.getElementById('editProfileSubtitle').textContent = currentUser.fullname || 'Update your information';
@@ -1324,9 +1327,12 @@ async function submitEditProfile(event) {
   formData.append('email', document.getElementById('editEmail').value);
   formData.append('cpnumber', document.getElementById('editCpnumber').value);
   formData.append('bdate', document.getElementById('editBdate').value);
+  formData.append('gender', document.getElementById('editGender').value);
   formData.append('address', document.getElementById('editAddress').value);
   formData.append('department', document.getElementById('editDepartment').value);
   formData.append('position', document.getElementById('editPosition').value);
+  formData.append('employment_type', document.getElementById('editEmploymentType').value);
+  formData.append('functional_role', document.getElementById('editFunctionalRole').value);
   formData.append('username', document.getElementById('editUsername').value);
   formData.append('rfid', currentUser.rfid);
   formData.append('role', currentUser.role || 'employee');

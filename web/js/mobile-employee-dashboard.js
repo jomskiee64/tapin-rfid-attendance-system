@@ -197,6 +197,10 @@ function paintProfile() {
   setText('profilePhone', currentUser.cpnumber || '--');
   setText('profileDept', currentUser.department || '--');
   setText('profilePosition', currentUser.position || '--');
+  setText('profileEmployType', currentUser.employment_type || '--');
+  setText('profileBdate', currentUser.bdate || '--');
+  setText('profileFuncRole', currentUser.functional_role || '--');
+  setText('profileGender', currentUser.gender || '--');
   setText('profileAddress', currentUser.address || '--');
 
   const avatar = document.getElementById('mobileProfileAvatar');
@@ -676,7 +680,11 @@ function openEditProfileModal() {
   document.getElementById('editCpnumber').value = currentUser.cpnumber || '';
   document.getElementById('editBdate').value = currentUser.bdate || '';
   document.getElementById('editAddress').value = currentUser.address || '';
+  document.getElementById('editDepartment').value = currentUser.department || '';
   document.getElementById('editPosition').value = currentUser.position || '';
+  document.getElementById('editEmploymentType').value = currentUser.employment_type || '';
+  document.getElementById('editFunctionalRole').value = currentUser.functional_role || '';
+  document.getElementById('editGender').value = currentUser.gender || '';
   document.getElementById('editUsername').value = currentUser.username || '';
 
   m.classList.add('show');
@@ -703,9 +711,12 @@ async function submitEditProfile(e) {
   fd.append('address', document.getElementById('editAddress').value);
   fd.append('position', document.getElementById('editPosition').value);
   fd.append('username', document.getElementById('editUsername').value);
+  fd.append('employment_type', document.getElementById('editEmploymentType').value);
+  fd.append('functional_role', document.getElementById('editFunctionalRole').value);
+  fd.append('gender', document.getElementById('editGender').value);
   fd.append('rfid', currentUser.rfid);
   fd.append('role', currentUser.role || 'employee');
-  fd.append('department', currentUser.department || '');
+  fd.append('department', document.getElementById('editDepartment').value);
 
   const file = document.getElementById('editProfileImage').files[0];
   if (file) fd.append('image', file);
