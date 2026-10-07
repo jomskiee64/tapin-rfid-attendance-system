@@ -14,6 +14,12 @@ from flask import Flask, jsonify, request, session, send_from_directory, send_fi
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
+# MySQL configuration + helpers (Aiven)
+#   get_cursor()  -> context manager yielding a DictCursor
+#   ping()        -> True if the DB is reachable
+#   get_db_connection() -> raw PyMySQL connection
+from config import get_cursor, ping, get_db_connection
+
 # Try to import PIL for image processing
 try:
     from PIL import Image
@@ -542,6 +548,18 @@ authorized_face_rfids = set()
 FACE_SCAN_ALLOW_DIRECT_DTR = False
 
 # ============================================================================
+# MYSQL SYNC STATE
+# ============================================================================
+# The JSON files remain the primary working store for the running app.
+# A background job pushes everything to MySQL once per day at 00:00
+# (local time). This keeps the app snappy while giving us a durable
+# relational copy for reporting / analytics.
+#
+# _last_mysql_sync_date guards the job so it runs at most once per day.
+# Call run_mysql_sync() manually from a route or shell to force a sync.
+_last_mysql_sync_date = None
+
+# ============================================================================
 # DAILY STATS HELPERS - PERSISTENT DAILY COUNTERS
 # ============================================================================
 # These functions manage the daily_stats.json file which tracks:
@@ -689,6 +707,436 @@ def reset_daily_stats_if_needed():
     return load_daily_stats()
 
 # ============================================================================
+# MYSQL SYNC — RUNS EVERY MIDNIGHT
+# ============================================================================
+# Pulls every JSON file from storage and pushes it into MySQL. The
+# operation is idempotent: tables are truncated and re-populated from the
+# current JSON state, so running it twice produces the same result.
+#
+# Called from:
+#   • the scheduler thread when the local date changes at 00:00
+#   • POST /api/mysql/sync  (manual trigger, useful for testing)
+#   • app startup (only if the last sync is more than 24h old)
+#
+# All work happens inside a single transaction per logical group so a
+# partial failure can't leave the DB half-written.
+# ============================================================================
+
+def _mysql_sync_users():
+    """Copy users.json -> users table."""
+    if not os.path.exists(USER_DATA_FILE):
+        return 0
+    with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    count = 0
+    with get_cursor(commit=True) as cur:
+        # Wipe dependent rows first (FK order), then users.
+        cur.execute("SET FOREIGN_KEY_CHECKS = 0")
+        for tbl in ("work_status_days", "work_status_requests", "face_scan_log",
+                    "notifications", "user_settings", "daily_present",
+                    "scans", "dtr_days", "attendance_records", "users"):
+            cur.execute(f"TRUNCATE TABLE {tbl}")
+        cur.execute("SET FOREIGN_KEY_CHECKS = 1")
+
+        for category, role in [("admin", "admin"), ("hr", "hr"), ("employees", "employee")]:
+            for emp in data.get(category, []):
+                cur.execute("""
+                    INSERT INTO users (
+                        uid, rfid, employeeid, username, password_hash, role,
+                        firstname, lastname, address, bdate, gender, cpnumber,
+                        email, department, position, employment_type,
+                        functional_role, image_path,
+                        timestamp_creation, timestamp_modified
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                """, (
+                    str(emp.get("uid", "")).zfill(3),
+                    (emp.get("rfid") or "").strip().upper() or None,
+                    emp.get("employeeid") or None,
+                    emp.get("username") or "",
+                    emp.get("password_hash") or "",
+                    role,
+                    emp.get("firstname") or "",
+                    emp.get("lastname") or "",
+                    emp.get("address") or None,
+                    emp.get("bdate") or None,
+                    emp.get("gender") or None,
+                    emp.get("cpnumber") or None,
+                    emp.get("email") or None,
+                    emp.get("department") or None,
+                    emp.get("position") or None,
+                    emp.get("employment_type") or None,
+                    emp.get("functional_role") or None,
+                    emp.get("image") or None,
+                    emp.get("timestamp_creation") or datetime.now(),
+                    emp.get("timestamp_modified") or datetime.now(),
+                ))
+                count += 1
+    return count
+
+
+def _mysql_sync_attendance():
+    """Copy attendance.json -> attendance_records + dtr_days tables."""
+    if not os.path.exists(ATTENDANCE_DATA_FILE):
+        return 0, 0
+    with open(ATTENDANCE_DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    records = data.get("records", [])
+    rec_count = 0
+    day_count = 0
+
+    with get_cursor(commit=True) as cur:
+        for rec in records:
+            uid = str(rec.get("uid", "")).zfill(3)
+            cur.execute("SELECT id FROM users WHERE uid = %s", (uid,))
+            row = cur.fetchone()
+            if not row:
+                continue
+            user_id = row["id"]
+
+            cur.execute("""
+                INSERT INTO attendance_records
+                    (user_id, month_key, month_display, total_hours, total_ut, total_ot)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                user_id,
+                rec.get("month") or "",
+                rec.get("month_display") or "",
+                float(rec.get("total_hours", 0) or 0),
+                float(rec.get("total_ut", 0) or 0),
+                float(rec.get("total_ot", 0) or 0),
+            ))
+            record_id = cur.lastrowid
+            rec_count += 1
+
+            for key, day in (rec.get("dtr") or {}).items():
+                cur.execute("""
+                    INSERT INTO dtr_days
+                        (record_id, day_date, day_abbr, am_in, am_out,
+                         pm_in, pm_out, hours, ut, ot, status, work_status_json)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    record_id,
+                    day.get("date") or None,
+                    (day.get("day") or "")[:3],
+                    (day.get("am_in") or "").strip() or None,
+                    (day.get("am_out") or "").strip() or None,
+                    (day.get("pm_in") or "").strip() or None,
+                    (day.get("pm_out") or "").strip() or None,
+                    float(day.get("hours", 0) or 0),
+                    float(day.get("ut", 0) or 0),
+                    float(day.get("ot", 0) or 0),
+                    day.get("status") or None,
+                    json.dumps(day.get("work_status")) if day.get("work_status") else None,
+                ))
+                day_count += 1
+    return rec_count, day_count
+
+
+def _mysql_sync_work_status():
+    """Copy work-status.json -> work_status_requests + work_status_days."""
+    if not os.path.exists(WORK_STATUS_DATA_FILE):
+        return 0, 0
+    with open(WORK_STATUS_DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    req_count = 0
+    day_count = 0
+    with get_cursor(commit=True) as cur:
+        for bucket, status in (("requests", "pending"),
+                               ("approved", "approved"),
+                               ("rejected", "rejected")):
+            for req in data.get(bucket, []):
+                uid = str(req.get("uid", "")).zfill(3)
+                cur.execute("SELECT id FROM users WHERE uid = %s", (uid,))
+                row = cur.fetchone()
+                if not row:
+                    continue
+                user_id = row["id"]
+
+                cur.execute("""
+                    INSERT INTO work_status_requests
+                        (user_id, work_status_type, period, start_time, end_time,
+                         start_date, end_date, reason, attachment_path, status,
+                         requested_at, processed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    user_id,
+                    req.get("work_status_type") or "others",
+                    req.get("period") or "whole_day",
+                    (req.get("start_time") or "").strip() or None,
+                    (req.get("end_time") or "").strip() or None,
+                    req.get("start_date") or None,
+                    req.get("end_date") or None,
+                    req.get("reason") or "",
+                    req.get("attachment_path") or None,
+                    status,
+                    req.get("requested_at") or datetime.now(),
+                    req.get("processed_at") or None,
+                ))
+                req_id = cur.lastrowid
+                req_count += 1
+
+                for d in (req.get("days") or []):
+                    cur.execute("""
+                        INSERT IGNORE INTO work_status_days (request_id, day_date)
+                        VALUES (%s, %s)
+                    """, (req_id, d))
+                    day_count += 1
+    return req_count, day_count
+
+
+def _mysql_sync_scans_and_activities():
+    """Copy scan_feed.json / scan_events.json / activity_feed.json."""
+    scan_count = 0
+    event_count = 0
+    act_count = 0
+
+    # scan_feed.json -> scans
+    if os.path.exists(SCAN_FEED_FILE):
+        with open(SCAN_FEED_FILE, "r", encoding="utf-8") as f:
+            feed = json.load(f)
+        with get_cursor(commit=True) as cur:
+            for s in feed.get("scans", []):
+                uid = (s.get("employee") or {}).get("uid")
+                user_id = None
+                if uid:
+                    cur.execute("SELECT id FROM users WHERE uid = %s", (str(uid).zfill(3),))
+                    r = cur.fetchone()
+                    if r:
+                        user_id = r["id"]
+                cur.execute("""
+                    INSERT INTO scans
+                        (rfid, scanned_at, scanned_on, scan_type, found, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    s.get("rfid") or "",
+                    s.get("scanned_at") or datetime.now(),
+                    s.get("scanned_on") or datetime.now().date(),
+                    s.get("scan_type") or "unknown",
+                    1 if s.get("found") else 0,
+                    user_id,
+                ))
+                scan_count += 1
+
+    # scan_events.json -> scan_events
+    if os.path.exists(SCAN_EVENTS_FILE):
+        with open(SCAN_EVENTS_FILE, "r", encoding="utf-8") as f:
+            ev = json.load(f)
+        with get_cursor(commit=True) as cur:
+            for e in ev.get("scan_events", []):
+                cur.execute("""
+                    INSERT INTO scan_events
+                        (rfid, scanned_at, scanned_on, scan_type, confidence)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    e.get("rfid") or "",
+                    e.get("scanned_at") or datetime.now(),
+                    e.get("scanned_on") or datetime.now().date(),
+                    e.get("scan_type") or None,
+                    e.get("confidence") if e.get("confidence") is not None else None,
+                ))
+                event_count += 1
+
+    # activity_feed.json -> activities
+    if os.path.exists(ACTIVITY_FEED_FILE):
+        with open(ACTIVITY_FEED_FILE, "r", encoding="utf-8") as f:
+            af = json.load(f)
+        with get_cursor(commit=True) as cur:
+            for a in af.get("activities", []):
+                u = a.get("user") or {}
+                cur.execute("""
+                    INSERT INTO activities
+                        (action, details, type, user_name, user_uid, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    a.get("action") or "",
+                    a.get("details") or "",
+                    a.get("type") or "system",
+                    u.get("name") if u else None,
+                    u.get("uid") if u else None,
+                    a.get("timestamp") or datetime.now(),
+                ))
+                act_count += 1
+
+    return scan_count, event_count, act_count
+
+
+def _mysql_sync_daily_stats():
+    """Copy daily_stats.json -> daily_stats + daily_present."""
+    if not os.path.exists(DAILY_STATS_FILE):
+        return 0
+    with open(DAILY_STATS_FILE, "r", encoding="utf-8") as f:
+        stats = json.load(f)
+
+    with get_cursor(commit=True) as cur:
+        cur.execute("""
+            INSERT INTO daily_stats
+                (stat_date, scan_count, rfid_scan_count, face_scan_count, present_count)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                scan_count = VALUES(scan_count),
+                rfid_scan_count = VALUES(rfid_scan_count),
+                face_scan_count = VALUES(face_scan_count),
+                present_count = VALUES(present_count)
+        """, (
+            stats.get("date") or datetime.now().date(),
+            int(stats.get("scan_count", 0)),
+            int(stats.get("rfid_scan_count", 0)),
+            int(stats.get("face_scan_count", 0)),
+            int(stats.get("present_count", 0)),
+        ))
+        for uid in stats.get("present_uids", []):
+            cur.execute("SELECT id FROM users WHERE uid = %s", (str(uid).zfill(3),))
+            r = cur.fetchone()
+            if r:
+                cur.execute("""
+                    INSERT IGNORE INTO daily_present (stat_date, user_id)
+                    VALUES (%s, %s)
+                """, (stats.get("date"), r["id"]))
+    return int(stats.get("present_count", 0))
+
+
+def _mysql_sync_notifications():
+    """Copy every storage/notification/<RFID>.json -> notifications."""
+    total = 0
+    if not os.path.isdir(NOTIFICATION_STORAGE):
+        return 0
+    with get_cursor(commit=True) as cur:
+        for fname in os.listdir(NOTIFICATION_STORAGE):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(NOTIFICATION_STORAGE, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    doc = json.load(f)
+            except Exception:
+                continue
+            rfid = (doc.get("rfid") or fname.replace(".json", "")).strip().upper()
+            cur.execute("SELECT id FROM users WHERE rfid = %s", (rfid,))
+            r = cur.fetchone()
+            if not r:
+                continue
+            user_id = r["id"]
+            for n in doc.get("notifications", []):
+                cur.execute("""
+                    INSERT INTO notifications
+                        (user_id, type, title, message, is_read, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    user_id,
+                    n.get("type") or "system",
+                    n.get("title") or "",
+                    n.get("message") or "",
+                    1 if n.get("read") else 0,
+                    n.get("created_at") or datetime.now(),
+                ))
+                total += 1
+    return total
+
+
+def _mysql_sync_system_settings():
+    """Copy settings.json -> system_settings (flat key/value)."""
+    if not os.path.exists(SETTINGS_FILE):
+        return 0
+    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    count = 0
+    with get_cursor(commit=True) as cur:
+        def _flatten(prefix, obj):
+            for k, v in obj.items():
+                key = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    _flatten(key, v)
+                else:
+                    cur.execute("""
+                        INSERT INTO system_settings (setting_key, setting_val)
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE setting_val = VALUES(setting_val)
+                    """, (key, str(v)))
+                    nonlocal count
+                    count += 1
+        _flatten("", data)
+    return count
+
+
+def run_mysql_sync():
+    """Full JSON -> MySQL sync. Idempotent. Safe to call from any thread.
+
+    Returns a summary dict with per-table counts. On any exception the
+    caller gets {"status": "error", "message": ...} and the DB is left
+    in whatever state the last successful statement committed.
+    """
+    started = datetime.now()
+    print(f"\n[MySQL Sync] Starting at {started.isoformat()}")
+
+    # Health check first — skip the whole job if the DB is unreachable.
+    if not ping():
+        msg = "MySQL is unreachable — sync skipped"
+        print(f"[MySQL Sync] {msg}")
+        return {"status": "error", "message": msg, "started_at": started.isoformat()}
+
+    try:
+        users = _mysql_sync_users()
+        print(f"[MySQL Sync] users: {users}")
+
+        recs, days = _mysql_sync_attendance()
+        print(f"[MySQL Sync] attendance_records: {recs}, dtr_days: {days}")
+
+        reqs, wsd = _mysql_sync_work_status()
+        print(f"[MySQL Sync] work_status_requests: {reqs}, work_status_days: {wsd}")
+
+        scans, events, acts = _mysql_sync_scans_and_activities()
+        print(f"[MySQL Sync] scans: {scans}, scan_events: {events}, activities: {acts}")
+
+        present = _mysql_sync_daily_stats()
+        print(f"[MySQL Sync] daily_present: {present}")
+
+        notifs = _mysql_sync_notifications()
+        print(f"[MySQL Sync] notifications: {notifs}")
+
+        cfg = _mysql_sync_system_settings()
+        print(f"[MySQL Sync] system_settings: {cfg}")
+
+        global _last_mysql_sync_date
+        _last_mysql_sync_date = datetime.now().date()
+
+        finished = datetime.now()
+        elapsed = (finished - started).total_seconds()
+        print(f"[MySQL Sync] Done in {elapsed:.2f}s\n")
+
+        return {
+            "status": "success",
+            "started_at": started.isoformat(),
+            "finished_at": finished.isoformat(),
+            "elapsed_seconds": round(elapsed, 2),
+            "counts": {
+                "users": users,
+                "attendance_records": recs,
+                "dtr_days": days,
+                "work_status_requests": reqs,
+                "work_status_days": wsd,
+                "scans": scans,
+                "scan_events": events,
+                "activities": acts,
+                "daily_present": present,
+                "notifications": notifs,
+                "system_settings": cfg,
+            }
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[MySQL Sync] FAILED: {e}")
+        return {"status": "error", "message": str(e), "started_at": started.isoformat()}
+
+
+# ============================================================================
 # NIGHTLY FEED WIPE (runs automatically at 12:00 AM local time)
 # ============================================================================
 # The four feed files listed below are cleared at midnight every day:
@@ -814,9 +1262,11 @@ def start_nightly_wipe_scheduler():
     It ALSO checks every 30 seconds whether the calendar date has changed,
     and if so, resets the daily present/scan counters.
 
+    It ALSO fires the JSON → MySQL sync once per day at 00:00 local time.
+
     This runs regardless of whether any API route is hit, so the feeds are
-    always cleared at Sunday 23:30 local time and the daily counters always
-    flip over at midnight.
+    always cleared at Sunday 23:30 local time, the daily counters always
+    flip over at midnight, and MySQL gets a fresh snapshot every night.
 
     Runs as a daemon thread — it shuts down automatically when the app exits.
     """
@@ -842,11 +1292,25 @@ def start_nightly_wipe_scheduler():
                 # --- Daily stats rollover check ------------------------------
                 # If the calendar date has changed since the last check, reset
                 # the daily present/scan counters so they start fresh.
+                #
+                # This is also the moment we fire the MySQL sync — the
+                # calendar has just rolled over, so the previous day's
+                # JSON files are complete and stable.
                 current_date = now.date().isoformat()
                 if last_daily_reset_date["value"] != current_date:
                     print(f"[Scheduler] Date changed to {current_date} — resetting daily counters")
                     reset_daily_stats_if_needed()
                     last_daily_reset_date["value"] = current_date
+
+                    # --- MIDNIGHT MYSQL SYNC -----------------------------
+                    # Guarded by _last_mysql_sync_date so a slow/retried loop
+                    # can never fire two syncs for the same calendar day.
+                    if _last_mysql_sync_date != now.date():
+                        print(f"[Scheduler] Midnight sync triggered for {current_date}")
+                        try:
+                            run_mysql_sync()
+                        except Exception as sync_err:
+                            print(f"[Scheduler] MySQL sync failed: {sync_err}")
             except Exception as e:
                 print(f"[Scheduler] Error in scheduler loop: {e}")
             # Sleep 30 seconds before checking again.
@@ -854,7 +1318,7 @@ def start_nightly_wipe_scheduler():
 
     scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="nightly-wipe")
     scheduler_thread.start()
-    print("✅ Nightly wipe scheduler thread launched (weekly on Sunday at 23:30, daily counter reset at midnight)")
+    print("✅ Nightly wipe scheduler thread launched (weekly on Sunday at 23:30, daily counter reset at midnight, MySQL sync at 00:00)")
 
 ## Functions ------------------------------------
 # Image compression function
@@ -3449,6 +3913,32 @@ def get_work_status_types():
         "status": "success",
         "data": types_list
     }), 200
+
+# ============================================================================
+# MYSQL SYNC ROUTES
+# ============================================================================
+# Manual trigger for the JSON → MySQL sync. Useful for testing and for
+# running the sync on demand without waiting for midnight.
+@app.route("/api/mysql/sync", methods=["POST"])
+def mysql_sync_route():
+    """Force an immediate JSON → MySQL sync. Returns per-table counts."""
+    try:
+        result = run_mysql_sync()
+        if result.get("status") == "success":
+            return jsonify(result), 200
+        return jsonify(result), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/mysql/status", methods=["GET"])
+def mysql_status_route():
+    """Check MySQL connectivity and report the last sync date."""
+    reachable = ping()
+    return jsonify({
+        "status": "success" if reachable else "error",
+        "reachable": reachable,
+        "last_sync_date": _last_mysql_sync_date.isoformat() if _last_mysql_sync_date else None,
+    }), 200 if reachable else 503
 
 # ============================================================================
 # NOTIFICATION API ROUTES
@@ -6825,6 +7315,8 @@ def page_not_found(e):
 @app.route("/api/notifications/<rfid>/read-all", methods=["OPTIONS"])
 @app.route("/api/notifications/<rfid>/<notification_id>", methods=["OPTIONS"])
 @app.route("/api/work-status-attachment/meta/<rfid>/<filename>", methods=["OPTIONS"])
+@app.route("/api/mysql/sync", methods=["OPTIONS"])
+@app.route("/api/mysql/status", methods=["OPTIONS"])
 def handle_options():
     response = jsonify({"status": "ok"})
     origin = request.headers.get("Origin")
@@ -6884,6 +7376,18 @@ try:
     print("[Boot] Daily stats file initialized.")
 except Exception as e:
     print(f"⚠️ Daily stats init error: {e}")
+
+# Verify the MySQL connection is reachable at boot so failures are loud
+# and obvious in the logs. The app itself never depends on MySQL being up —
+# every route keeps reading from the JSON files — so a DB outage simply
+# means the next midnight sync will be skipped (and retried the day after).
+try:
+    if ping():
+        print("[Boot] MySQL connection OK.")
+    else:
+        print("[Boot] ⚠️ MySQL is unreachable — midnight sync will be skipped until it recovers.")
+except Exception as e:
+    print(f"[Boot] ⚠️ MySQL ping error: {e}")
 
 ## Main ------------------------------------
 if __name__ == "__main__":

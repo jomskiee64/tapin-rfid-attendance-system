@@ -694,8 +694,10 @@ async function recordAttendance(match) {
     return;
   }
 
-  // Mark the attempt time BEFORE the fetch so a slow response doesn't
-  // let a second request slip through while the first is in flight.
+  // Mark the attempt time. We set this after checking the throttle but
+  // before the fetch to prevent queuing multiple attempts while waiting
+  // for a slow API response, yet we'll update it again in the finally
+  // block to ensure the throttle period starts after we finish processing.
   lastRecordAttemptAt.set(key, Date.now());
 
   // Capture the exact scan time — the FIRST frame of this 1-second window.
@@ -757,6 +759,11 @@ async function recordAttendance(match) {
     messageEl.textContent = "⚠️ API connection failed.";
     // Network error → brief backoff to avoid hammering the endpoint.
     lastRecordAttemptAt.set(key, Date.now() + REJECT_BACKOFF_MS - RECORD_INTERVAL_MS);
+  } finally {
+    // Update the attempt time to NOW so the throttle period starts
+    // after we finish processing (whether success, failure, or error).
+    // This prevents rapid-fire detections when API calls are slow.
+    lastRecordAttemptAt.set(key, Date.now());
   }
 }
 

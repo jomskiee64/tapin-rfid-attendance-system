@@ -6,6 +6,7 @@
 config.py
 db_config.py
 credentials.py
+ca.pem
 
 # Python files
 __pycache__/
