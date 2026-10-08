@@ -3032,16 +3032,6 @@ function buildDTRHTML(record, dtr, employee) {
         const rowStyle = isWeekend ? 'background-color:#f2f2f2;' : (isWorkStatus ? 'background-color:#fef3c7;' : '');
         const ut = day.ut && day.ut !== '0.00' && day.ut !== 0 ? day.ut : '';
         const ot = day.ot && day.ot !== '0.00' && day.ot !== 0 ? day.ot : '';
-        
-        // Build status text for work status
-        let statusText = day.status || '';
-        if (day.work_status && day.work_status.is_active) {
-            const wsLabel = day.work_status.label || day.work_status.type || 'Work Status';
-            const wsPeriod = day.work_status.period || 'whole_day';
-            statusText = `${wsLabel} (${wsPeriod.replace('_', ' ')})`;
-        } else if (isWorkStatus) {
-            statusText = 'WORK STATUS';
-        }
 
         return `
             <tr style="${rowStyle}">
@@ -3073,7 +3063,7 @@ function buildDTRHTML(record, dtr, employee) {
                 <div class="info-row"><span class="info-label">Department :</span><span class="info-value">${department}</span></div>
                 <div class="info-row two-col">
                     <span class="info-half"><span class="info-label">Regular Time :</span><span class="info-value">${employee.regularTime || 'DEFAULT'}</span></span>
-                    <span class="info-half"><span class="info-label label-auto">Payroll No. :</span><span class="info-value payroll-underline">1</span></span>
+                    <span class="info-half payroll-half"><span class="info-label label-auto">Payroll No. :</span><span class="info-value payroll-underline">1</span></span>
                 </div>
             </div>
 
@@ -3176,6 +3166,7 @@ function buildDTRHTML(record, dtr, employee) {
                     font-family: Arial, Helvetica, sans-serif;
                     font-size: 9px;
                     color: #000;
+                    font-weight: bold;
                 }
                 .dtr-page {
                     display: flex;
@@ -3186,7 +3177,7 @@ function buildDTRHTML(record, dtr, employee) {
                     flex: 1 1 50%;
                     width: 50%;
                     min-width: 0;
-                    padding: 2px 14px; /* padding left & right to center the text */
+                    padding: 2px 14px;
                 }
                 .dtr-vertical-divider {
                     width: 0;
@@ -3199,8 +3190,6 @@ function buildDTRHTML(record, dtr, employee) {
                     font-weight: bold;
                     text-transform: uppercase;
                 }
-                /* Blank spacing line between big title and small subtitle,
-                   and between date range and employee info block */
                 .dtr-title-space {
                     height: 8px;
                     line-height: 8px;
@@ -3219,10 +3208,11 @@ function buildDTRHTML(record, dtr, employee) {
                 .dtr-info {
                     font-size: 9px;
                     margin-bottom: 5px;
+                    font-weight: bold;
                 }
                 .info-row {
                     display: flex;
-                    gap: 4px;
+                    gap: 0;
                     padding: 1px 0;
                 }
                 .info-row.two-col {
@@ -3230,8 +3220,13 @@ function buildDTRHTML(record, dtr, employee) {
                 }
                 .info-half {
                     display: flex;
-                    gap: 4px;
+                    gap: 0;
                     align-items: flex-end;
+                }
+                /* Payroll No. group: the "1" sits DIRECTLY against the
+                   "Payroll No. :" colon — no gap at all. */
+                .payroll-half {
+                    gap: 0;
                 }
                 .info-label {
                     font-weight: bold;
@@ -3244,24 +3239,29 @@ function buildDTRHTML(record, dtr, employee) {
                     width: auto;
                 }
                 .info-value {
+                    font-weight: bold;
                     border-bottom: 1px solid transparent;
+                    margin-left: 0;
                 }
                 .info-value.name {
                     font-weight: bold;
                     text-transform: uppercase;
                 }
-                /* Payroll No. value with underline under the "1" */
+                /* Payroll No. value with a WIDER underline under the "1",
+                   pulled flush against the label colon. */
                 .info-value.payroll-underline {
                     border-bottom: 1px solid #000;
-                    min-width: 24px;
+                    min-width: 42px;
                     text-align: center;
                     display: inline-block;
+                    font-weight: bold;
+                    margin-left: 0;
                 }
                 .dtr-table {
                     width: 100%;
                     border-collapse: collapse;
                     table-layout: fixed;
-                    font-size: 8px;
+                    font-size: 12px;
                     margin-bottom: 4px;
                 }
                 .dtr-table col.col-date { width: 15%; }
@@ -3275,19 +3275,48 @@ function buildDTRHTML(record, dtr, employee) {
                     padding: 1px 2px;
                     overflow: hidden;
                     white-space: nowrap;
+                    font-weight: bold;
+                }
+                .dtr-table thead tr.grp-row th {
+                    padding: 6px 2px;
+                    font-size: 13px;
+                    letter-spacing: 0.5px;
+                    font-weight: bold;
+                }
+                .dtr-table thead tr.sub-row th {
+                    padding: 6px 2px;
+                    font-size: 12px;
+                    background-color: #fff;
+                    font-weight: bold;
                 }
                 .dtr-table thead th {
                     font-weight: bold;
-                    font-size: 8px;
                     background-color: #fff;
                 }
                 .dtr-table tbody td {
-                    font-size: 8px;
-                    height: 13px;
+                    font-size: 12px;
+                    height: 18px;
+                    line-height: 1;
+                    padding: 2px 2px;
+                    vertical-align: middle;
+                    font-weight: bold;
                 }
+                /* Time values (In 1 / Out 1 / In 2 / Out 2) stay normal weight */
+                .dtr-table tbody td.c-time {
+                    font-weight: normal;
+                }
+                /* UT and OT numbers stay normal weight too */
+                .dtr-table tbody td.c-small {
+                    font-weight: normal;
+                }
+
+                /* ===== Bottom-of-form block — everything bold ===== */
+
+                /* A = / ROT = / LOT =  and  U = / SOT = summary lines */
                 .dtr-summary {
                     font-size: 9px;
                     margin: 3px 0;
+                    font-weight: bold;
                 }
                 .summary-line {
                     display: grid;
@@ -3309,14 +3338,20 @@ function buildDTRHTML(record, dtr, employee) {
                     min-width: 34px;
                     display: inline-block;
                     text-align: center;
+                    font-weight: bold;
                 }
+
+                /* "I Certify on my honor..." paragraph */
                 .dtr-cert {
                     font-size: 7.5px;
                     text-align: center;
                     line-height: 1.35;
                     margin: 6px 0 2px 0;
                     padding: 0 45px;
+                    font-weight: bold;
                 }
+
+                /* Signature / In Charge line + caption */
                 .dtr-sig {
                     text-align: center;
                     margin-top: 16px;
@@ -3331,6 +3366,8 @@ function buildDTRHTML(record, dtr, employee) {
                     font-weight: bold;
                     margin-top: 1px;
                 }
+
+                /* ===== divider line ===== */
                 .dtr-divider {
                     font-size: 7px;
                     line-height: 1;
@@ -3338,18 +3375,25 @@ function buildDTRHTML(record, dtr, employee) {
                     margin: 6px 0 2px 0;
                     overflow: hidden;
                     white-space: nowrap;
+                    font-weight: bold;
                 }
+
+                /* VERIFIED as to the prescribed office hours */
                 .dtr-verified-label {
                     text-align: center;
                     font-size: 8px;
                     font-weight: bold;
                     margin-bottom: 2px;
                 }
+
+                /* >>>>>EMPLOYEE'S COPY / >>>>>PERSONNEL'S COPY */
                 .dtr-copy-tag {
                     font-weight: bold;
                     font-size: 8.5px;
                     margin-top: 6px;
                 }
+
+                /* Personnel-only RECORDED BY : / DATE : block */
                 .dtr-recorded {
                     margin-top: 10px;
                     font-size: 8.5px;
@@ -3376,7 +3420,7 @@ function buildDTRHTML(record, dtr, employee) {
                 .recorded-row .recorded-colon {
                     font-weight: bold;
                     flex-shrink: 0;
-                    margin-right: 6px
+                    margin-right: 6px;
                 }
                 .recorded-row .recorded-line {
                     flex: 1;
@@ -3384,6 +3428,7 @@ function buildDTRHTML(record, dtr, employee) {
                     height: 10px;
                     min-width: 120px;
                 }
+
                 @media print {
                     .dtr-page {
                         page-break-inside: avoid;
